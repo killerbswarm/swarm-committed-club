@@ -1,0 +1,147 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* HIGH-CONTRAST LIGHT MODE OVERRIDES */
+body.light-mode {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+body.light-mode header,
+body.light-mode .bg-gray-800 {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+body.light-mode select,
+body.light-mode input,
+body.light-mode textarea {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+body.light-mode .bg-gray-900:not(#auth-overlay):not(#wheel-modal):not(#history-modal):not(#edit-member-modal):not(#add-member-modal) {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
+body.light-mode h2, 
+body.light-mode h3, 
+body.light-mode .text-amber-400 {
+  color: #d97706 !important;
+}
+body.light-mode .text-gray-400 {
+  color: #475569 !important;
+}
+body.light-mode .text-gray-300 {
+  color: #334155 !important;
+}
+body.light-mode .text-white {
+  color: #0f172a !important;
+}
+
+body.light-mode thead {
+  background-color: #f1f5f9 !important;
+  color: #475569 !important;
+  border-color: #cbd5e1 !important;
+}
+body.light-mode tr:hover {
+  background-color: #f8fafc !important;
+}
+
+body.light-mode tr td span.text-amber-400,
+body.light-mode tr td .text-amber-400 {
+  color: #0f172a !important;
+}
+body.light-mode tr td span.text-amber-400:hover {
+  color: #d97706 !important;
+}
+
+body.light-mode .tab-btn.bg-gray-700 {
+  background-color: #e2e8f0 !important;
+  color: #334155 !important;
+}
+body.light-mode .tab-btn.bg-gray-700:hover {
+  background-color: #cbd5e1 !important;
+}
+body.light-mode .tab-btn.bg-amber-500 {
+  background-color: #f59e0b !important;
+  color: #0f172a !important;
+  font-weight: 700 !important;
+}
+
+body.light-mode .bg-green-900\/60 {
+  background-color: #dcfce7 !important;
+  color: #15803d !important;
+  border: 1px solid #86efac !important;
+}
+body.light-mode .bg-purple-900\/60 {
+  background-color: #f3e8ff !important;
+  color: #7e22ce !important;
+  border: 1px solid #d8b4fe !important;
+}
+body.light-mode .bg-blue-900\/80 {
+  background-color: #dbeafe !important;
+  color: #1d4ed8 !important;
+  border: 1px solid #93c5fd !important;
+}
+body.light-mode .bg-amber-900\/60 {
+  background-color: #fef3c7 !important;
+  color: #b45309 !important;
+  border: 1px solid #fde68a !important;
+}
+body.light-mode .bg-orange-950\/60 {
+  background-color: #ffedd5 !important;
+  color: #c2410c !important;
+  border: 1px solid #fdba74 !important;
+}
+body.light-mode .bg-gray-700.text-gray-400 {
+  background-color: #e2e8f0 !important;
+  color: #64748b !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+body.light-mode .bg-gray-700 {
+  background-color: #e2e8f0 !important;
+  color: #1e293b !important;
+  border: 1px solid #cbd5e1 !important;
+}
+body.light-mode .bg-gray-700:hover {
+  background-color: #cbd5e1 !important;
+}
+body.light-mode .bg-amber-500 {
+  background-color: #f59e0b !important;
+  color: #0f172a !important;
+}
+body.light-mode .bg-amber-700 {
+  background-color: #c2410c !important;
+  color: #ffffff !important;
+}
+
+body.light-mode #lists-status-container {
+  background-color: #fffbeb !important;
+  border-color: #fde68a !important;
+  color: #92400e !important;
+}
+body.light-mode #manual-winner-control {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
+body.light-mode #history-modal .bg-gray-800,
+body.light-mode #edit-member-modal .bg-gray-800,
+body.light-mode #add-member-modal .bg-gray-800 {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+body.light-mode #hist-months-list .bg-gray-900 {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+body.light-mode #hist-total-months,
+body.light-mode #hist-current-streak,
+body.light-mode #hist-total-wins {
+  color: #b45309 !important;
+}
