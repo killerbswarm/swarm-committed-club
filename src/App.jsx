@@ -14,6 +14,7 @@ import {
 } from './firebase';
 
 const AUTH_PASS = "Coach1103!";
+const CHECKINS_API = "https://us-central1-swarm-checkins-5436d.cloudfunctions.net";
 const monthNames = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 function makeNameKey(name) {
@@ -170,18 +171,23 @@ export default function App() {
     }
   }
 
-  // Live listeners for checkins + monthly_records (Current Month + Live View)
+  // Load checkins from swarm-checkins master service (poll for near-live updates)
+  async function loadCheckinsFromMaster() {
+    try {
+      const res = await fetch(`${CHECKINS_API}/getCheckins`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setCheckins(data.checkins || []);
+    } catch (err) {
+      console.error("Checkins API error:", err);
+    }
+  }
+
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    const unsubCheckins = onSnapshot(
-      collection(db, 'checkins'),
-      (snap) => {
-        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        setCheckins(list);
-      },
-      (err) => console.error("Checkins listener error:", err)
-    );
+    loadCheckinsFromMaster();
+    const poll = setInterval(loadCheckinsFromMaster, 15000); // every 15s
 
     const unsubMonthly = onSnapshot(
       collection(db, 'monthly_records'),
@@ -189,7 +195,6 @@ export default function App() {
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         list.sort((a, b) => b.id.localeCompare(a.id));
         setMonthlyRecords(list);
-        // Set default live month if not set
         setLiveMonthId(prev => {
           if (!prev && list.length > 0) return list[0].id;
           return prev;
@@ -199,7 +204,7 @@ export default function App() {
     );
 
     return () => {
-      unsubCheckins();
+      clearInterval(poll);
       unsubMonthly();
     };
   }, [isAuthenticated]);
@@ -668,7 +673,7 @@ export default function App() {
 
         {/* 2b. CURRENT MONTH TAB (New dated checkins system) */}
         {activeTab === 'current' && (
-          <CurrentMonth checkins={checkins} appSettings={appSettings} />
+          <CurrentMonth checkins={checkins} appSettings={appSettings} masterMembers={masterMembers} setHistoryMember={setHistoryMember} checkinsApi={CHECKINS_API} onCheckinsChanged={loadCheckinsFromMaster} />
         )}
 
         {/* 3. CLUB LISTS TAB */}
@@ -747,28 +752,77 @@ export default function App() {
       )}
 
       {/* ATHLETE HISTORY MODAL */}
-      {historyMember && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-gray-800 border border-gray-700 rounded-2xl p-6 max-w-lg w-full relative">
-            <button onClick={() => setHistoryMember(null)} className="absolute top-4 right-4 bg-gray-700 text-gray-400 hover:text-white w-8 h-8 rounded-full font-bold">&times;</button>
-            <h3 className="text-2xl font-bold text-amber-400 mb-4">{historyMember.name}</h3>
-            <div className="grid grid-cols-3 gap-3 text-center mb-4">
-              <div className="bg-gray-900 p-3 rounded-xl border border-gray-700">
-                <div className="text-2xl font-black text-amber-400">{monthlyRecords.filter(r => (r.qualifierIds || []).includes(historyMember.id)).length}</div>
-                <div className="text-[10px] uppercase text-gray-400 font-bold">Total Months</div>
+      {historyMember && (() => {
+        // Pull last check-in + CHIP total from dated checkins
+        const memberEmail = (historyMember.email || '').toLowerCase();
+        const memberName = (historyMember.name || '').toLowerCase().trim();
+        const memberCheckins = (checkins || []).filter(c => {
+          const ce = (c.email || '').toLowerCase();
+          if (memberEmail && ce === memberEmail) return true;
+          const cn = `${c.firstName || ''} ${c.lastName || ''}`.trim().toLowerCase();
+          return memberName && cn === memberName;
+        });
+        memberCheckins.sort((a, b) => (b.classDate || '').localeCompare(a.classDate || ''));
+        const last = memberCheckins[0] || null;
+        const chipTotal = last?.totalAttendanceCount ?? null;
+        const daysThisMonth = memberCheckins.filter(c => {
+          const now = new Date();
+          const prefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+          return (c.classDate || '').startsWith(prefix);
+        }).length;
+
+        return (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+            <div className="bg-gray-800 border border-gray-700 rounded-2xl p-5 sm:p-6 max-w-lg w-full relative max-h-[90vh] overflow-y-auto">
+              <button onClick={() => setHistoryMember(null)} className="absolute top-4 right-4 bg-gray-700 text-gray-400 hover:text-white w-8 h-8 rounded-full font-bold">&times;</button>
+              <h3 className="text-xl sm:text-2xl font-bold text-amber-400 mb-1 pr-10">{historyMember.name}</h3>
+              {memberEmail && <p className="text-xs text-gray-500 mb-4">{memberEmail}</p>}
+
+              <div className="grid grid-cols-3 gap-2 sm:gap-3 text-center mb-4">
+                <div className="bg-gray-900 p-3 rounded-xl border border-gray-700">
+                  <div className="text-xl sm:text-2xl font-black text-amber-400">{historyMember.id ? monthlyRecords.filter(r => (r.qualifierIds || []).includes(historyMember.id)).length : '—'}</div>
+                  <div className="text-[9px] sm:text-[10px] uppercase text-gray-400 font-bold">Total Months</div>
+                </div>
+                <div className="bg-gray-900 p-3 rounded-xl border border-gray-700">
+                  <div className="text-xl sm:text-2xl font-black text-orange-400">{historyMember.id ? getMemberStreak(historyMember.id) : '—'}</div>
+                  <div className="text-[9px] sm:text-[10px] uppercase text-gray-400 font-bold">Streak</div>
+                </div>
+                <div className="bg-gray-900 p-3 rounded-xl border border-gray-700">
+                  <div className="text-xl sm:text-2xl font-black text-yellow-400">{historyMember.id ? monthlyRecords.filter(r => r.winnerId === historyMember.id).length : '—'}</div>
+                  <div className="text-[9px] sm:text-[10px] uppercase text-gray-400 font-bold">Wins</div>
+                </div>
               </div>
-              <div className="bg-gray-900 p-3 rounded-xl border border-gray-700">
-                <div className="text-2xl font-black text-orange-400">{getMemberStreak(historyMember.id)}</div>
-                <div className="text-[10px] uppercase text-gray-400 font-bold">Streak</div>
-              </div>
-              <div className="bg-gray-900 p-3 rounded-xl border border-gray-700">
-                <div className="text-2xl font-black text-yellow-400">{monthlyRecords.filter(r => r.winnerId === historyMember.id).length}</div>
-                <div className="text-[10px] uppercase text-gray-400 font-bold">Wins</div>
+
+              {/* Last check-in + CHIP total */}
+              <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 space-y-3">
+                <div className="text-[10px] uppercase font-bold text-gray-500 tracking-wide">Latest from Chalk It Pro</div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <div className="text-[10px] uppercase text-gray-500 font-bold">Last Check-In Date</div>
+                    <div className="text-white font-semibold">{last?.classDate || '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase text-gray-500 font-bold">Last Class Name</div>
+                    <div className="text-white font-semibold">{last?.className || '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase text-gray-500 font-bold">Last Class Time</div>
+                    <div className="text-white font-semibold">{last?.classTime || '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase text-gray-500 font-bold">Total Check-Ins (CHIP)</div>
+                    <div className="text-amber-400 font-black text-lg">{chipTotal != null ? chipTotal : '—'}</div>
+                  </div>
+                </div>
+                <div className="pt-2 border-t border-gray-700 flex justify-between text-xs text-gray-400">
+                  <span>Days this month (app)</span>
+                  <span className="text-amber-400 font-bold">{daysThisMonth}</span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ADD MEMBER MODAL */}
       {showAddModal && (

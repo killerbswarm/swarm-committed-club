@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { db, doc, setDoc, deleteDoc, serverTimestamp } from '../firebase';
 
 const monthNames = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-export default function CurrentMonth({ checkins, appSettings }) {
+export default function CurrentMonth({ checkins, appSettings, masterMembers = [], setHistoryMember, checkinsApi, onCheckinsChanged }) {
   const [search, setSearch] = useState('');
-  const [calendarMember, setCalendarMember] = useState(null);
-  const [dayAction, setDayAction] = useState(null); // { dateStr, isChecked, className, classTime }
+  const [selected, setSelected] = useState(null); // athlete row
+  const [dayAction, setDayAction] = useState(null);
   const [formClassName, setFormClassName] = useState('CrossFit');
   const [formClassTime, setFormClassTime] = useState('');
   const [saving, setSaving] = useState(false);
@@ -14,10 +13,9 @@ export default function CurrentMonth({ checkins, appSettings }) {
   const minCheckins = appSettings?.minCheckins || 15;
   const now = new Date();
   const year = now.getFullYear();
-  const month = now.getMonth(); // 0-based
+  const month = now.getMonth();
   const currentPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
 
-  // Group checkins by email for current month
   const byEmail = {};
   (checkins || []).forEach(c => {
     if (!c.classDate || !c.classDate.startsWith(currentPrefix)) return;
@@ -30,7 +28,8 @@ export default function CurrentMonth({ checkins, appSettings }) {
         lastName: c.lastName || '',
         name: `${c.firstName || ''} ${c.lastName || ''}`.trim() || email,
         dates: new Set(),
-        classes: []
+        classes: [],
+        totalAttendanceCount: c.totalAttendanceCount || null
       };
     }
     byEmail[email].dates.add(c.classDate);
@@ -38,15 +37,28 @@ export default function CurrentMonth({ checkins, appSettings }) {
       date: c.classDate,
       name: c.className || '',
       time: c.classTime || '',
-      docId: c.id
+      docId: c.id,
+      totalAttendanceCount: c.totalAttendanceCount
     });
+    // keep latest CHIP total
+    if (c.totalAttendanceCount != null) {
+      byEmail[email].totalAttendanceCount = c.totalAttendanceCount;
+    }
   });
 
-  let rows = Object.values(byEmail).map(m => ({
-    ...m,
-    days: m.dates.size,
-    sortedDates: Array.from(m.dates).sort()
-  }));
+  let rows = Object.values(byEmail).map(m => {
+    const sortedDates = Array.from(m.dates).sort();
+    const lastDate = sortedDates[sortedDates.length - 1] || null;
+    const lastClass = (m.classes || []).filter(c => c.date === lastDate).pop() || null;
+    return {
+      ...m,
+      days: m.dates.size,
+      sortedDates,
+      lastDate,
+      lastClassName: lastClass?.name || '',
+      lastClassTime: lastClass?.time || ''
+    };
+  });
 
   const q = (search || '').toLowerCase().trim();
   if (q) {
@@ -56,6 +68,11 @@ export default function CurrentMonth({ checkins, appSettings }) {
     );
   }
   rows.sort((a, b) => b.days - a.days || a.name.localeCompare(b.name));
+
+  function openAthlete(row) {
+    setSelected(row);
+    setDayAction(null);
+  }
 
   function openDay(dateStr, isChecked, classInfo) {
     setDayAction({
@@ -70,24 +87,28 @@ export default function CurrentMonth({ checkins, appSettings }) {
   }
 
   async function handleAddOrEdit() {
-    if (!calendarMember || !dayAction) return;
+    if (!selected || !dayAction || !checkinsApi) return;
     setSaving(true);
     try {
-      const email = calendarMember.email.toLowerCase();
-      const docId = `${email}_${dayAction.dateStr}`;
-      await setDoc(doc(db, 'checkins', docId), {
-        email,
-        firstName: calendarMember.firstName || '',
-        lastName: calendarMember.lastName || '',
-        classDate: dayAction.dateStr,
-        className: formClassName || 'CrossFit',
-        classTime: formClassTime || '',
-        recordedAt: serverTimestamp(),
-        source: 'manual'
-      }, { merge: true });
+      const email = selected.email.toLowerCase();
+      const res = await fetch(`${checkinsApi}/upsertCheckin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          firstName: selected.firstName || '',
+          lastName: selected.lastName || '',
+          classDate: dayAction.dateStr,
+          className: formClassName || 'CrossFit',
+          classTime: formClassTime || '',
+          source: 'manual'
+        })
+      });
+      if (!res.ok) throw new Error(await res.text());
       setDayAction(null);
-      // calendarMember will refresh via live listener; update local set for snappy UI
-      setCalendarMember(prev => {
+      if (onCheckinsChanged) await onCheckinsChanged();
+      // optimistic local update
+      setSelected(prev => {
         if (!prev) return prev;
         const newDates = new Set(prev.dates);
         newDates.add(dayAction.dateStr);
@@ -96,9 +117,19 @@ export default function CurrentMonth({ checkins, appSettings }) {
           date: dayAction.dateStr,
           name: formClassName || 'CrossFit',
           time: formClassTime || '',
-          docId
+          docId: `${email}_${dayAction.dateStr}`
         });
-        return { ...prev, dates: newDates, days: newDates.size, classes, sortedDates: Array.from(newDates).sort() };
+        const sortedDates = Array.from(newDates).sort();
+        return {
+          ...prev,
+          dates: newDates,
+          days: newDates.size,
+          classes,
+          sortedDates,
+          lastDate: sortedDates[sortedDates.length - 1],
+          lastClassName: formClassName || 'CrossFit',
+          lastClassTime: formClassTime || ''
+        };
       });
     } catch (err) {
       alert('Failed to save: ' + err.message);
@@ -108,26 +139,53 @@ export default function CurrentMonth({ checkins, appSettings }) {
   }
 
   async function handleDelete() {
-    if (!calendarMember || !dayAction) return;
+    if (!selected || !dayAction || !checkinsApi) return;
     if (!confirm(`Delete check-in for ${dayAction.dateStr}?`)) return;
     setSaving(true);
     try {
-      const email = calendarMember.email.toLowerCase();
+      const email = selected.email.toLowerCase();
       const docId = dayAction.docId || `${email}_${dayAction.dateStr}`;
-      await deleteDoc(doc(db, 'checkins', docId));
+      const res = await fetch(`${checkinsApi}/deleteCheckin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: docId, email, classDate: dayAction.dateStr })
+      });
+      if (!res.ok) throw new Error(await res.text());
       setDayAction(null);
-      setCalendarMember(prev => {
+      if (onCheckinsChanged) await onCheckinsChanged();
+      setSelected(prev => {
         if (!prev) return prev;
         const newDates = new Set(prev.dates);
         newDates.delete(dayAction.dateStr);
         const classes = (prev.classes || []).filter(c => c.date !== dayAction.dateStr);
-        return { ...prev, dates: newDates, days: newDates.size, classes, sortedDates: Array.from(newDates).sort() };
+        const sortedDates = Array.from(newDates).sort();
+        const lastDate = sortedDates[sortedDates.length - 1] || null;
+        const lastClass = classes.filter(c => c.date === lastDate).pop();
+        return {
+          ...prev,
+          dates: newDates,
+          days: newDates.size,
+          classes,
+          sortedDates,
+          lastDate,
+          lastClassName: lastClass?.name || '',
+          lastClassTime: lastClass?.time || ''
+        };
       });
     } catch (err) {
       alert('Failed to delete: ' + err.message);
     } finally {
       setSaving(false);
     }
+  }
+
+  function StatusBadge({ days }) {
+    const isQual = days >= minCheckins;
+    const left = minCheckins - days;
+    if (isQual) {
+      return <span className="bg-green-900/60 text-green-300 border border-green-700/50 px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap">✓ Qual</span>;
+    }
+    return <span className="bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap">{left} left</span>;
   }
 
   return (
@@ -137,7 +195,7 @@ export default function CurrentMonth({ checkins, appSettings }) {
           <div>
             <h2 className="text-base sm:text-xl font-bold text-amber-400">Current Month (New System)</h2>
             <p className="text-gray-400 text-[11px] sm:text-xs">
-              Accurate dated check-ins. Open calendar → click a day to add, edit, or delete.
+              Tap a row for details, calendar, and edit options.
             </p>
           </div>
           <input
@@ -149,71 +207,68 @@ export default function CurrentMonth({ checkins, appSettings }) {
           />
         </div>
 
-        {/* Mobile card list */}
+        {/* Mobile cards — whole row clickable */}
         <div className="sm:hidden space-y-2">
           {rows.length === 0 ? (
             <div className="p-6 text-center text-gray-500 text-sm">No dated check-ins recorded for this month yet.</div>
           ) : (
             rows.map((m, idx) => {
-              const isQual = m.days >= minCheckins;
               const pct = Math.min(100, Math.round((m.days / minCheckins) * 100));
-              const left = minCheckins - m.days;
               return (
-                <div key={m.email} className="bg-gray-900/60 border border-gray-700 rounded-xl p-3 flex items-center gap-3">
+                <button
+                  key={m.email}
+                  type="button"
+                  onClick={() => openAthlete(m)}
+                  className="w-full text-left bg-gray-900/60 border border-gray-700 rounded-xl p-3 flex items-center gap-3 hover:border-amber-500/50 transition"
+                >
                   <div className="text-gray-500 font-mono text-xs w-5 shrink-0">{idx + 1}</div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-white text-sm truncate">{m.name}</div>
+                    <div className="font-semibold text-amber-400 text-sm truncate">{m.name}</div>
                     <div className="text-[10px] text-gray-500 truncate">{m.email}</div>
                     <div className="mt-1.5 flex items-center gap-2">
                       <span className="font-black text-amber-400 text-sm">{m.days}</span>
                       <div className="flex-1 max-w-[80px] bg-gray-700 h-1.5 rounded-full overflow-hidden">
                         <div className="bg-amber-500 h-full rounded-full" style={{ width: `${pct}%` }}></div>
                       </div>
-                      {isQual
-                        ? <span className="bg-green-900/60 text-green-300 border border-green-700/50 px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap">✓ Qual</span>
-                        : <span className="bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap">{left} left</span>}
+                      <StatusBadge days={m.days} />
                     </div>
                   </div>
-                  <button
-                    onClick={() => setCalendarMember(m)}
-                    className="shrink-0 bg-gray-700 hover:bg-amber-600 text-white text-[10px] font-semibold px-2.5 py-2 rounded-lg"
-                  >
-                    Calendar
-                  </button>
-                </div>
+                  <div className="text-gray-500 text-lg shrink-0">›</div>
+                </button>
               );
             })
           )}
         </div>
 
-        {/* Desktop table */}
+        {/* Desktop table — whole row clickable */}
         <div className="hidden sm:block overflow-x-auto">
           <table className="w-full text-left text-sm text-gray-300">
             <thead className="bg-gray-900 text-gray-400 uppercase text-xs font-bold border-b border-gray-700">
               <tr>
                 <th className="p-3 w-10 text-center">#</th>
                 <th className="p-3">Athlete</th>
-                <th className="p-3 text-center">Days This Month</th>
+                <th className="p-3 text-center">Days</th>
                 <th className="p-3 text-center">Status</th>
-                <th className="p-3 text-right">Calendar</th>
+                <th className="p-3">Last Check-In</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-700/60">
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="p-6 text-center text-gray-500">
-                    No dated check-ins recorded for this month yet.
-                  </td>
+                  <td colSpan="5" className="p-6 text-center text-gray-500">No dated check-ins recorded for this month yet.</td>
                 </tr>
               ) : (
                 rows.map((m, idx) => {
-                  const isQual = m.days >= minCheckins;
                   const pct = Math.min(100, Math.round((m.days / minCheckins) * 100));
                   return (
-                    <tr key={m.email} className="hover:bg-gray-800/50">
+                    <tr
+                      key={m.email}
+                      onClick={() => openAthlete(m)}
+                      className="hover:bg-gray-800/80 cursor-pointer transition"
+                    >
                       <td className="p-3 text-center font-mono text-gray-400 font-bold">{idx + 1}</td>
                       <td className="p-3">
-                        <div className="font-semibold text-white">{m.name}</div>
+                        <div className="font-semibold text-amber-400">{m.name}</div>
                         <div className="text-[10px] text-gray-500">{m.email}</div>
                       </td>
                       <td className="p-3 text-center">
@@ -223,17 +278,12 @@ export default function CurrentMonth({ checkins, appSettings }) {
                         </div>
                       </td>
                       <td className="p-3 text-center">
-                        {isQual
-                          ? <span className="bg-green-900/60 text-green-300 border border-green-700/50 px-2.5 py-1 rounded-full text-[10px] font-bold whitespace-nowrap">✓ Qualified</span>
-                          : <span className="bg-gray-700/60 text-gray-300 border border-gray-600 px-2.5 py-1 rounded-full text-[10px] font-medium whitespace-nowrap">{minCheckins - m.days} left</span>}
+                        <StatusBadge days={m.days} />
                       </td>
-                      <td className="p-3 text-right">
-                        <button
-                          onClick={() => setCalendarMember(m)}
-                          className="bg-gray-700 hover:bg-amber-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg transition"
-                        >
-                          View Calendar
-                        </button>
+                      <td className="p-3 text-xs text-gray-400">
+                        {m.lastDate ? (
+                          <span>{m.lastDate}{m.lastClassName ? ` · ${m.lastClassName}` : ''}{m.lastClassTime ? ` @ ${m.lastClassTime}` : ''}</span>
+                        ) : '—'}
                       </td>
                     </tr>
                   );
@@ -244,67 +294,88 @@ export default function CurrentMonth({ checkins, appSettings }) {
         </div>
       </div>
 
-      {/* Calendar Popup */}
-      {calendarMember && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={() => { setCalendarMember(null); setDayAction(null); }}>
+      {/* Combined detail + calendar modal */}
+      {selected && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/70"
+          onClick={() => { setSelected(null); setDayAction(null); }}
+        >
           <div
-            className="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+            className="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden max-h-[92vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between p-4 border-b border-gray-700">
-              <div>
-                <h3 className="text-lg font-bold text-amber-400">{calendarMember.name}</h3>
-                <p className="text-xs text-gray-400">
-                  {calendarMember.email} · {calendarMember.days} day{calendarMember.days !== 1 ? 's' : ''} this month
-                </p>
+            {/* Header */}
+            <div className="flex items-start justify-between p-4 border-b border-gray-700">
+              <div className="min-w-0 pr-2">
+                <h3 className="text-lg font-bold text-amber-400 truncate">{selected.name}</h3>
+                <p className="text-xs text-gray-400 truncate">{selected.email}</p>
               </div>
               <button
-                onClick={() => { setCalendarMember(null); setDayAction(null); }}
-                className="text-gray-400 hover:text-white text-xl font-bold leading-none px-2"
+                onClick={() => { setSelected(null); setDayAction(null); }}
+                className="text-gray-400 hover:text-white text-xl font-bold leading-none px-2 shrink-0"
               >
                 ×
               </button>
             </div>
 
+            {/* CHIP / stats summary */}
+            <div className="p-4 border-b border-gray-700 bg-gray-900/40">
+              <div className="text-[10px] uppercase font-bold text-gray-500 tracking-wide mb-2">Latest from Chalk It Pro</div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <div className="text-[10px] uppercase text-gray-500 font-bold">Last Check-In Date</div>
+                  <div className="text-white font-semibold">{selected.lastDate || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase text-gray-500 font-bold">Last Class Name</div>
+                  <div className="text-white font-semibold">{selected.lastClassName || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase text-gray-500 font-bold">Last Class Time</div>
+                  <div className="text-white font-semibold">{selected.lastClassTime || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase text-gray-500 font-bold">Total Check-Ins (CHIP)</div>
+                  <div className="text-amber-400 font-black text-lg">
+                    {selected.totalAttendanceCount != null ? selected.totalAttendanceCount : '—'}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 pt-3 border-t border-gray-700 flex justify-between text-xs text-gray-400">
+                <span>Days this month (app)</span>
+                <span className="text-amber-400 font-bold">{selected.days} / {minCheckins}</span>
+              </div>
+            </div>
+
+            {/* Calendar */}
             <div className="p-4">
               {(() => {
                 const firstDay = new Date(year, month, 1);
                 const lastDay = new Date(year, month + 1, 0);
                 const startWeekday = firstDay.getDay();
                 const daysInMonth = lastDay.getDate();
-
-                const checkedSet = calendarMember.dates instanceof Set
-                  ? calendarMember.dates
-                  : new Set(calendarMember.sortedDates || []);
-
+                const checkedSet = selected.dates instanceof Set ? selected.dates : new Set(selected.sortedDates || []);
                 const classMap = {};
-                (calendarMember.classes || []).forEach(c => {
+                (selected.classes || []).forEach(c => {
                   if (!classMap[c.date]) classMap[c.date] = [];
                   classMap[c.date].push(c);
                 });
-
                 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                 const cells = [];
-
                 for (let i = 0; i < startWeekday; i++) {
-                  cells.push(<div key={`empty-${i}`} className="h-10" />);
+                  cells.push(<div key={`empty-${i}`} className="h-9" />);
                 }
-
                 for (let day = 1; day <= daysInMonth; day++) {
                   const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                   const isChecked = checkedSet.has(dateStr);
                   const classes = classMap[dateStr] || [];
-                  const title = classes.length
-                    ? classes.map(c => `${c.name}${c.time ? ' @ ' + c.time : ''}`).join(', ')
-                    : 'Click to add check-in';
-
                   cells.push(
                     <button
                       key={day}
                       type="button"
-                      title={title}
+                      title={isChecked ? (classes.map(c => `${c.name}${c.time ? ' @ ' + c.time : ''}`).join(', ') || 'Checked in') : 'Add check-in'}
                       onClick={() => openDay(dateStr, isChecked, classes[0])}
-                      className={`h-10 flex items-center justify-center rounded-lg text-sm font-semibold transition cursor-pointer
+                      className={`h-9 flex items-center justify-center rounded-lg text-sm font-semibold transition cursor-pointer
                         ${isChecked
                           ? 'bg-amber-500 text-gray-900 shadow hover:bg-amber-400'
                           : 'bg-gray-900/60 text-gray-500 hover:bg-gray-700 hover:text-white'}`}
@@ -313,31 +384,20 @@ export default function CurrentMonth({ checkins, appSettings }) {
                     </button>
                   );
                 }
-
                 return (
                   <>
-                    <div className="text-center text-sm font-bold text-white mb-3">
+                    <div className="text-center text-sm font-bold text-white mb-2">
                       {monthNames[month + 1]} {year}
                     </div>
                     <div className="grid grid-cols-7 gap-1 mb-1">
                       {weekDays.map(d => (
-                        <div key={d} className="text-center text-[10px] font-bold text-gray-500 uppercase">
-                          {d}
-                        </div>
+                        <div key={d} className="text-center text-[10px] font-bold text-gray-500 uppercase">{d}</div>
                       ))}
                     </div>
-                    <div className="grid grid-cols-7 gap-1">
-                      {cells}
-                    </div>
-                    <div className="mt-4 flex items-center gap-3 text-xs text-gray-400">
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-3.5 h-3.5 rounded bg-amber-500" />
-                        <span>Checked in (click to edit/delete)</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-3.5 h-3.5 rounded bg-gray-900/60 border border-gray-700" />
-                        <span>Empty (click to add)</span>
-                      </div>
+                    <div className="grid grid-cols-7 gap-1">{cells}</div>
+                    <div className="mt-3 flex items-center gap-3 text-[10px] text-gray-400">
+                      <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-500 inline-block" /> Checked in</span>
+                      <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-900 border border-gray-600 inline-block" /> Tap empty to add</span>
                     </div>
                   </>
                 );
@@ -350,7 +410,7 @@ export default function CurrentMonth({ checkins, appSettings }) {
                 <div className="text-sm font-bold text-white">
                   {dayAction.dateStr}
                   <span className="ml-2 text-xs font-normal text-gray-400">
-                    {dayAction.isChecked ? 'Edit / Delete check-in' : 'Add check-in'}
+                    {dayAction.isChecked ? 'Edit / Delete' : 'Add check-in'}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -381,7 +441,7 @@ export default function CurrentMonth({ checkins, appSettings }) {
                     disabled={saving}
                     className="flex-1 bg-amber-500 hover:bg-amber-400 text-gray-900 font-bold py-2 rounded-lg text-xs uppercase disabled:opacity-50"
                   >
-                    {saving ? 'Saving…' : (dayAction.isChecked ? 'Save Changes' : 'Add Check-In')}
+                    {saving ? 'Saving…' : (dayAction.isChecked ? 'Save' : 'Add')}
                   </button>
                   {dayAction.isChecked && (
                     <button
