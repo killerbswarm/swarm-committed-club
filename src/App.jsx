@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Papa from 'papaparse';
 import Dashboard from './components/Dashboard';
 import CurrentMonth from './components/CurrentMonth';
+import { checkinsDb, collection as checkinsCollection, onSnapshot as checkinsOnSnapshot } from './checkinsFirebase';
 import LiveView from './components/LiveView';
 import ClubLists from './components/ClubLists';
 import Upload from './components/Upload';
@@ -171,7 +172,7 @@ export default function App() {
     }
   }
 
-  // Load checkins from swarm-checkins master service (poll for near-live updates)
+  // Still used after manual calendar add/edit/delete
   async function loadCheckinsFromMaster() {
     try {
       const res = await fetch(`${CHECKINS_API}/getCheckins`);
@@ -183,11 +184,18 @@ export default function App() {
     }
   }
 
+  // Live listener on swarm-checkins master DB
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    loadCheckinsFromMaster();
-    const poll = setInterval(loadCheckinsFromMaster, 15000); // every 15s
+    const unsubCheckins = checkinsOnSnapshot(
+      checkinsCollection(checkinsDb, 'checkins'),
+      (snap) => {
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setCheckins(list);
+      },
+      (err) => console.error("Checkins live listener error:", err)
+    );
 
     const unsubMonthly = onSnapshot(
       collection(db, 'monthly_records'),
@@ -204,7 +212,7 @@ export default function App() {
     );
 
     return () => {
-      clearInterval(poll);
+      unsubCheckins();
       unsubMonthly();
     };
   }, [isAuthenticated]);
