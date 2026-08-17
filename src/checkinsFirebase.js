@@ -2,12 +2,12 @@ import { initializeApp } from "firebase/app";
 import { getFirestore, collection, onSnapshot, query, where } from "firebase/firestore";
 
 const checkinsConfig = {
-  apiKey: "AIzaSyAw_6kK6yCNsNajjhPZODP3ESi-_bTxAWE",
-  authDomain: "swarm-checkins-5436d.firebaseapp.com",
-  projectId: "swarm-checkins-5436d",
-  storageBucket: "swarm-checkins-5436d.firebasestorage.app",
-  messagingSenderId: "340687259774",
-  appId: "1:340687259774:web:6ec47937954538519f702f"
+  apiKey: import.meta.env.VITE_CHECKINS_API_KEY,
+  authDomain: import.meta.env.VITE_CHECKINS_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_CHECKINS_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_CHECKINS_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_CHECKINS_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_CHECKINS_APP_ID
 };
 
 const checkinsApp = initializeApp(checkinsConfig, "checkins");

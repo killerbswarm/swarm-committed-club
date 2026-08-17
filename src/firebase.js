@@ -6,13 +6,13 @@ import {
 } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyB2EtoDSvphgDM0Ch0XIm0RcXxHFLj5ki0",
-  authDomain: "committed-club.firebaseapp.com",
-  projectId: "committed-club",
-  storageBucket: "committed-club.firebasestorage.app",
-  messagingSenderId: "471076847529",
-  appId: "1:471076847529:web:11e90e1498dae993d74eb8",
-  measurementId: "G-HMGFYYTQE5"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 const app = initializeApp(firebaseConfig);
