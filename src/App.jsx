@@ -599,20 +599,31 @@ export default function App() {
             <p className="text-[10px] sm:text-xs text-gray-400">React + Firestore Edition</p>
           </div>
         </div>
-        <nav className="flex space-x-1.5 sm:space-x-2 w-full sm:w-auto justify-between sm:justify-end overflow-x-auto pb-1 sm:pb-0">
+        <nav className="flex gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 scrollbar-thin -mx-1 px-1">
           {['roster', 'live', 'current', 'lists', 'upload', 'draw', 'settings'].map(tab => (
             <button 
               key={tab}
               onClick={() => setActiveTab(tab)} 
-              className={`tab-btn px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 ${activeTab === tab ? 'bg-amber-500 text-gray-900' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+              className={`tab-btn px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[11px] sm:text-sm font-semibold transition cursor-pointer shrink-0 whitespace-nowrap ${activeTab === tab ? 'bg-amber-500 text-gray-900' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
             >
-              {tab === 'roster' && 'Dashboard 📊'}
-              {tab === 'live' && 'Live View ⚡'}
-              {tab === 'current' && 'Current Month 📅'}
-              {tab === 'lists' && 'Club Lists 🏆'}
-              {tab === 'upload' && 'Upload 📥'}
-              {tab === 'draw' && 'Draws 🎡'}
-              {tab === 'settings' && 'Settings ⚙️'}
+              <span className="sm:hidden">
+                {tab === 'roster' && '📊'}
+                {tab === 'live' && '⚡ Live'}
+                {tab === 'current' && '📅 Month'}
+                {tab === 'lists' && '🏆 Lists'}
+                {tab === 'upload' && '📥'}
+                {tab === 'draw' && '🎡'}
+                {tab === 'settings' && '⚙️'}
+              </span>
+              <span className="hidden sm:inline">
+                {tab === 'roster' && 'Dashboard 📊'}
+                {tab === 'live' && 'Live View ⚡'}
+                {tab === 'current' && 'Current Month 📅'}
+                {tab === 'lists' && 'Club Lists 🏆'}
+                {tab === 'upload' && 'Upload 📥'}
+                {tab === 'draw' && 'Draws 🎡'}
+                {tab === 'settings' && 'Settings ⚙️'}
+              </span>
             </button>
           ))}
         </nav>
