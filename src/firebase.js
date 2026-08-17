@@ -2,7 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import { 
   getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, 
-  writeBatch, serverTimestamp, arrayUnion, arrayRemove 
+  writeBatch, serverTimestamp, arrayUnion, arrayRemove, onSnapshot 
 } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -22,5 +22,5 @@ const db = getFirestore(app);
 export { 
   app, auth, db, signInAnonymously, onAuthStateChanged,
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, 
-  writeBatch, serverTimestamp, arrayUnion, arrayRemove 
+  writeBatch, serverTimestamp, arrayUnion, arrayRemove, onSnapshot 
 };

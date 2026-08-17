@@ -10,7 +10,7 @@ import Settings from './components/Settings';
 import { 
   auth, db, signInAnonymously, onAuthStateChanged,
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, 
-  writeBatch, serverTimestamp, arrayUnion, arrayRemove 
+  writeBatch, serverTimestamp, arrayUnion, arrayRemove, onSnapshot 
 } from './firebase';
 
 const AUTH_PASS = "Coach1103!";
@@ -151,9 +151,9 @@ export default function App() {
 
   async function loadAllData() {
     try {
-      const [membersSnap, monthlySnap, quarterlySnap] = await Promise.all([
+      // Members + quarterly still one-time (or occasional refresh)
+      const [membersSnap, quarterlySnap] = await Promise.all([
         getDocs(collection(db, 'members')),
-        getDocs(collection(db, 'monthly_records')),
         getDocs(collection(db, 'quarterly_records'))
       ]);
 
@@ -161,32 +161,48 @@ export default function App() {
         .map(d => ({ id: d.id, ...d.data() }))
         .filter(m => m.name && m.name.trim() !== '');
 
-      const monthlyList = monthlySnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      monthlyList.sort((a, b) => b.id.localeCompare(a.id));
-
       const quarterlyList = quarterlySnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
       setMasterMembers(membersList);
-      setMonthlyRecords(monthlyList);
       setQuarterlyRecords(quarterlyList);
-
-      // Load new dated checkins system
-      try {
-        const checkinsSnap = await getDocs(collection(db, 'checkins'));
-        const checkinsList = checkinsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        setCheckins(checkinsList);
-      } catch (e) {
-        console.error("Checkins load error:", e);
-        setCheckins([]);
-      }
-
-      if (monthlyList.length > 0 && !liveMonthId) {
-        setLiveMonthId(monthlyList[0].id);
-      }
     } catch (err) {
       console.error("Data load error:", err);
     }
   }
+
+  // Live listeners for checkins + monthly_records (Current Month + Live View)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const unsubCheckins = onSnapshot(
+      collection(db, 'checkins'),
+      (snap) => {
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setCheckins(list);
+      },
+      (err) => console.error("Checkins listener error:", err)
+    );
+
+    const unsubMonthly = onSnapshot(
+      collection(db, 'monthly_records'),
+      (snap) => {
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        list.sort((a, b) => b.id.localeCompare(a.id));
+        setMonthlyRecords(list);
+        // Set default live month if not set
+        setLiveMonthId(prev => {
+          if (!prev && list.length > 0) return list[0].id;
+          return prev;
+        });
+      },
+      (err) => console.error("Monthly records listener error:", err)
+    );
+
+    return () => {
+      unsubCheckins();
+      unsubMonthly();
+    };
+  }, [isAuthenticated]);
 
   // Helper Streak Engine (Excludes Current In-Progress Month)
   function getMemberStreak(memberId) {
