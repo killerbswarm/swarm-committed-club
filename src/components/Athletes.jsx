@@ -1,5 +1,13 @@
 import React from 'react';
 
+const MONTH_SHORT = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function monthLabel(docId) {
+  if (!docId || !docId.includes('-')) return docId || '';
+  const [yr, mo] = docId.split('-');
+  return `${MONTH_SHORT[parseInt(mo, 10)] || mo} ${String(yr).slice(-2)}`;
+}
+
 export default function Athletes({
   masterMembers,
   monthlyRecords,
@@ -21,6 +29,14 @@ export default function Athletes({
     })
     .filter(m => m.name.toLowerCase().includes((rosterSearch || '').toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name));
+
+  function winsFor(member) {
+    const fromMonths = (monthlyRecords || [])
+      .filter((r) => r.winnerId === member.id || r.winner === member.id)
+      .map((r) => monthLabel(r.id));
+    const stored = member.wins || [];
+    return Array.from(new Set([...fromMonths, ...stored]));
+  }
 
   return (
     <section className="space-y-4">
@@ -61,7 +77,7 @@ export default function Athletes({
           {filtered.map(m => {
             const monthsQualCount = monthlyRecords.filter(r => r.qualifierIds && r.qualifierIds.includes(m.id)).length;
             const streak = getMemberStreak(m.id);
-            const winsList = m.wins || [];
+            const winsList = winsFor(m);
             return (
               <div key={m.id} className="bg-gray-900/60 border border-gray-700 rounded-xl p-3">
                 <div className="flex items-start justify-between gap-2">
@@ -115,7 +131,7 @@ export default function Athletes({
               {filtered.map(m => {
                 const monthsQualCount = monthlyRecords.filter(r => r.qualifierIds && r.qualifierIds.includes(m.id)).length;
                 const streak = getMemberStreak(m.id);
-                const winsList = m.wins || [];
+                const winsList = winsFor(m);
                 return (
                   <tr key={m.id} className="hover:bg-gray-800/50">
                     <td className="p-3">
