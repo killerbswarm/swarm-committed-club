@@ -1,189 +1,252 @@
 import React from 'react';
 
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+function isCoachMeeting(name) {
+  return String(name || '').toLowerCase().includes('coach meeting');
+}
+
+function formatClassTime(raw) {
+  if (raw == null || raw === '') return '';
+  const s = String(raw).trim();
+  const m = s.match(/^(\d{1,2}):(\d{1,2})(\s*[ap]m)?$/i);
+  if (!m) return s;
+  return `${m[1]}:${String(m[2]).padStart(2, '0')}${m[3] || ''}`;
+}
+
+function recordedMs(c) {
+  const r = c.recordedAt;
+  if (!r) return 0;
+  if (typeof r.toDate === 'function') return r.toDate().getTime();
+  if (r.seconds) return r.seconds * 1000;
+  const d = new Date(r);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+function timeMinutes(raw) {
+  const s = String(raw || '').trim();
+  const m = s.match(/^(\d{1,2}):(\d{1,2})(\s*([ap]m))?$/i);
+  if (!m) return 0;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  const ap = (m[4] || '').toLowerCase();
+  if (ap === 'pm' && h < 12) h += 12;
+  if (ap === 'am' && h === 12) h = 0;
+  return h * 60 + min;
+}
+
 export default function Dashboard({
-  masterMembers,
-  monthlyRecords,
-  rosterStatusFilter,
-  setRosterStatusFilter,
-  rosterSearch,
-  setRosterSearch,
+  checkins = [],
+  appSettings,
   activeMembersCount,
   activeStreaksCount,
   unbrokenCount2026,
-  totalLifetimeQuals,
-  getMemberStreak,
-  setHistoryMember,
-  setEditMember,
-  setShowAddModal
+  setActiveTab
 }) {
-  const filtered = masterMembers
-    .filter(m => {
-      if (rosterStatusFilter === 'active') return m.status === 'active' || !m.status;
-      if (rosterStatusFilter === 'inactive') return m.status === 'inactive';
-      if (rosterStatusFilter === 'coaches') return m.isCoach;
-      return true;
-    })
-    .filter(m => m.name.toLowerCase().includes((rosterSearch || '').toLowerCase()))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const minDays = appSettings?.minCheckins || 15;
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const monthName = MONTHS[month];
+  const prefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+  const todayKey = `${prefix}-${String(now.getDate()).padStart(2, '0')}`;
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  const daysLeft = Math.max(0, lastDay - now.getDate());
+  const dayNum = now.getDate();
+
+  const byEmail = {};
+  const recent = [];
+
+  (checkins || []).forEach((c) => {
+    const date = typeof c.classDate === 'string' ? c.classDate : '';
+    if (!date || !date.startsWith(prefix)) return;
+    const email = (c.email || '').toLowerCase();
+    if (!email) return;
+    if (!byEmail[email]) {
+      byEmail[email] = {
+        email,
+        name: `${c.firstName || ''} ${c.lastName || ''}`.trim() || email,
+        dates: new Set()
+      };
+    }
+    if (!isCoachMeeting(c.className)) byEmail[email].dates.add(date);
+    if (!isCoachMeeting(c.className)) {
+      recent.push({
+        name: `${c.firstName || ''} ${c.lastName || ''}`.trim() || email,
+        className: c.className || 'Class',
+        time: formatClassTime(c.classTime),
+        date,
+        minutes: timeMinutes(c.classTime),
+        ms: recordedMs(c)
+      });
+    }
+  });
+
+  const athletes = Object.values(byEmail).map((a) => {
+    const days = a.dates.size;
+    const need = Math.max(0, minDays - days);
+    const canMakeIt = days + daysLeft >= minDays;
+    const qualified = days >= minDays;
+    return { ...a, days, need, canMakeIt, qualified };
+  });
+
+  const checkedIn = athletes.length;
+  const qualified = athletes.filter((a) => a.qualified).length;
+  const onPace = athletes.filter((a) => !a.qualified && a.canMakeIt).length;
+  const behind = athletes.filter((a) => !a.qualified && !a.canMakeIt).sort((a, b) => a.days - b.days);
+  const almost = athletes
+    .filter((a) => !a.qualified && a.canMakeIt && a.need <= 5)
+    .sort((a, b) => a.need - b.need || b.days - a.days);
+  const leaders = athletes.filter((a) => a.qualified).sort((a, b) => b.days - a.days);
+
+  recent.sort((a, b) =>
+    String(b.date).localeCompare(String(a.date)) ||
+    (b.minutes - a.minutes) ||
+    (b.ms - a.ms)
+  );
+  const todayCount = recent.filter((c) => c.date === todayKey).length;
+
+  const pctMonth = Math.min(100, Math.round((dayNum / lastDay) * 100));
 
   return (
-    <section className="space-y-4 sm:space-y-6">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
-        <div className="bg-gray-800 border border-gray-700 p-3 sm:p-4 rounded-xl shadow-md text-center">
-          <div className="text-xl sm:text-4xl font-black text-amber-400">{activeMembersCount}</div>
-          <div className="text-[9px] sm:text-xs uppercase font-bold text-gray-400 mt-1 leading-tight">Active Athletes</div>
+    <section className="space-y-5">
+      <div className="rounded-2xl border border-amber-500/20 bg-gradient-to-br from-gray-800 to-gray-900 p-5 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+          <div>
+            <p className="text-[11px] uppercase tracking-widest font-bold text-amber-500/80">Committed Club</p>
+            <h1 className="text-2xl sm:text-3xl font-black text-white mt-1">{monthName} {year}</h1>
+            <p className="text-sm text-gray-400 mt-1">
+              Day {dayNum} of {lastDay} · <span className="text-amber-400 font-semibold">{daysLeft} days left</span> · need {minDays} days
+            </p>
+          </div>
+          <button
+            onClick={() => setActiveTab && setActiveTab('current')}
+            className="self-start sm:self-auto text-xs font-bold bg-amber-500 hover:bg-amber-400 text-gray-900 px-3 py-2 rounded-lg"
+          >
+            Open Current Month →
+          </button>
         </div>
-        <div className="bg-gray-800 border border-gray-700 p-3 sm:p-4 rounded-xl shadow-md text-center">
-          <div className="text-xl sm:text-4xl font-black text-orange-400">{activeStreaksCount}</div>
-          <div className="text-[9px] sm:text-xs uppercase font-bold text-gray-400 mt-1 leading-tight">Active Streaks 🔥</div>
-        </div>
-        <div className="bg-gray-800 border border-gray-700 p-3 sm:p-4 rounded-xl shadow-md text-center">
-          <div className="text-xl sm:text-4xl font-black text-yellow-400">{unbrokenCount2026}</div>
-          <div className="text-[9px] sm:text-xs uppercase font-bold text-gray-400 mt-1 leading-tight">2026 Unbroken 🏆</div>
-        </div>
-        <div className="bg-gray-800 border border-gray-700 p-3 sm:p-4 rounded-xl shadow-md text-center">
-          <div className="text-xl sm:text-4xl font-black text-emerald-400">{totalLifetimeQuals}</div>
-          <div className="text-[9px] sm:text-xs uppercase font-bold text-gray-400 mt-1 leading-tight">Lifetime Quals</div>
+        <div className="mt-4 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+          <div className="h-full bg-amber-500" style={{ width: `${pctMonth}%` }} />
         </div>
       </div>
 
-      <div className="bg-gray-800 p-3 sm:p-6 rounded-xl border border-gray-700 shadow-md">
-        <div className="flex flex-col gap-3 mb-4">
-          <div>
-            <h2 className="text-base sm:text-xl font-bold text-amber-400">Master Athlete Roster</h2>
-            <p className="text-gray-400 text-[11px] sm:text-xs">Tap a name for history, streak, and wins.</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={rosterStatusFilter}
-              onChange={(e) => setRosterStatusFilter(e.target.value)}
-              className="bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:outline-none font-semibold cursor-pointer"
-            >
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="all">All</option>
-              <option value="coaches">Coaches</option>
-            </select>
-            <input
-              type="text"
-              value={rosterSearch}
-              onChange={(e) => setRosterSearch(e.target.value)}
-              placeholder="Search..."
-              className="bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500 flex-1 min-w-[100px]"
-            />
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="bg-amber-500 hover:bg-amber-400 text-gray-900 font-bold text-xs px-3 py-2 rounded-lg transition cursor-pointer whitespace-nowrap"
-            >
-              + Add
-            </button>
-          </div>
-        </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Kpi value={checkedIn} label="Checked in this month" color="text-white" />
+        <Kpi value={qualified} label="Already at 15+" color="text-emerald-400" />
+        <Kpi value={onPace} label="Can still qualify" color="text-amber-400" />
+        <Kpi value={behind.length} label="Can't hit 15" color="text-rose-400" />
+      </div>
 
-        {/* Mobile cards */}
-        <div className="sm:hidden space-y-2">
-          {filtered.map(m => {
-            const monthsQualCount = monthlyRecords.filter(r => r.qualifierIds && r.qualifierIds.includes(m.id)).length;
-            const streak = getMemberStreak(m.id);
-            const winsList = m.wins || [];
-            return (
-              <div key={m.id} className="bg-gray-900/60 border border-gray-700 rounded-xl p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="cursor-pointer hover:underline text-amber-400 font-bold text-sm" onClick={() => setHistoryMember(m)}>{m.name}</span>
-                      {m.isCoach && <span className="bg-purple-900/60 text-purple-300 border border-purple-700/50 text-[9px] px-1.5 py-0.5 rounded font-bold">COACH</span>}
-                      {m.status === 'inactive'
-                        ? <span className="bg-gray-700 text-gray-400 text-[9px] px-1.5 py-0.5 rounded font-bold">Inactive</span>
-                        : <span className="bg-green-900/60 text-green-300 text-[9px] px-1.5 py-0.5 rounded font-bold">Active</span>}
-                    </div>
-                    <div className="mt-1.5 flex items-center gap-3 text-xs text-gray-400">
-                      <span><span className="text-amber-400 font-bold">{monthsQualCount}</span> mos</span>
-                      {streak > 0
-                        ? <span className="bg-orange-950/60 text-orange-400 border border-orange-700/50 px-1.5 py-0.5 rounded-full font-bold text-[10px] whitespace-nowrap">🔥 {streak}</span>
-                        : <span>—</span>}
-                    </div>
-                    {winsList.length > 0 && (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {winsList.map((w, idx) => (
-                          <span key={idx} className="bg-amber-900/60 text-amber-300 border border-amber-700/50 text-[9px] px-1.5 py-0.5 rounded font-mono">{w}</span>
-                        ))}
-                      </div>
-                    )}
+      <div className="grid grid-cols-3 gap-3">
+        <MiniKpi value={activeMembersCount} label="Active roster" />
+        <MiniKpi value={activeStreaksCount} label="Active streaks" />
+        <MiniKpi value={unbrokenCount2026} label="2026 unbroken" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Panel title="Needs a push" subtitle={`${almost.length} within 5 days of qualifying`}>
+          {almost.length === 0 ? (
+            <Empty text="Nobody is in the last 5 days right now." />
+          ) : (
+            <ul className="space-y-2">
+              {almost.slice(0, 8).map((a) => (
+                <li key={a.email} className="flex items-center justify-between gap-2 bg-gray-900/50 rounded-lg px-3 py-2">
+                  <span className="text-sm font-semibold text-gray-100 truncate">{a.name}</span>
+                  <span className="text-xs font-bold text-amber-400 whitespace-nowrap">{a.days}/{minDays} · {a.need} to go</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+
+        <Panel title="Latest check-ins" subtitle={`${todayCount} today · newest first`}>
+          {recent.length === 0 ? (
+            <Empty text="No class check-ins this month yet." />
+          ) : (
+            <ul className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              {recent.slice(0, 20).map((c, i) => (
+                <li key={`${c.name}-${c.date}-${c.time}-${i}`} className="flex items-center justify-between gap-2 bg-gray-900/50 rounded-lg px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-gray-100 truncate">{c.name}</div>
+                    <div className="text-[11px] text-gray-500">{c.date === todayKey ? 'Today' : c.date}</div>
                   </div>
-                  <button
-                    onClick={() => setEditMember(m)}
-                    className="shrink-0 bg-sky-600 hover:bg-sky-500 text-white font-bold text-[10px] px-2.5 py-1.5 rounded transition"
-                  >
-                    Edit
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                  <span className="text-[11px] text-gray-400 whitespace-nowrap">{c.className}{c.time ? ` · ${c.time}` : ''}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+      </div>
 
-        {/* Desktop table */}
-        <div className="hidden sm:block overflow-x-auto">
-          <table className="w-full text-left text-sm text-gray-300">
-            <thead className="bg-gray-900 text-gray-400 uppercase text-xs font-bold border-b border-gray-700">
-              <tr>
-                <th className="p-3">Athlete Name</th>
-                <th className="p-3">Status</th>
-                <th className="p-3 text-center">Months Qualified</th>
-                <th className="p-3 text-center">Streak</th>
-                <th className="p-3">Wins</th>
-                <th className="p-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-700/60">
-              {filtered.map(m => {
-                const monthsQualCount = monthlyRecords.filter(r => r.qualifierIds && r.qualifierIds.includes(m.id)).length;
-                const streak = getMemberStreak(m.id);
-                const winsList = m.wins || [];
-                return (
-                  <tr key={m.id} className="hover:bg-gray-800/50">
-                    <td className="p-3">
-                      <div className="flex items-center gap-1.5">
-                        <span className="cursor-pointer hover:underline text-amber-400 font-bold" onClick={() => setHistoryMember(m)}>{m.name}</span>
-                        {m.isCoach && <span className="bg-purple-900/60 text-purple-300 border border-purple-700/50 text-[9px] px-1.5 py-0.5 rounded font-bold">COACH</span>}
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      {m.status === 'inactive'
-                        ? <span className="bg-gray-700 text-gray-400 text-[10px] px-2 py-1 rounded font-bold whitespace-nowrap">Inactive</span>
-                        : <span className="bg-green-900/60 text-green-300 text-[10px] px-2 py-1 rounded font-bold whitespace-nowrap">Active</span>}
-                    </td>
-                    <td className="p-3 text-center font-bold text-amber-400 text-sm">{monthsQualCount}</td>
-                    <td className="p-3 text-center">
-                      {streak > 0
-                        ? <span className="bg-orange-950/60 text-orange-400 border border-orange-700/50 px-2 py-0.5 rounded-full font-bold text-xs whitespace-nowrap">🔥 {streak}</span>
-                        : <span className="text-gray-500">—</span>}
-                    </td>
-                    <td className="p-3">
-                      <div className="flex flex-wrap gap-1">
-                        {winsList.length > 0
-                          ? winsList.map((w, idx) => (
-                              <span key={idx} className="bg-amber-900/60 text-amber-300 border border-amber-700/50 text-[10px] px-1.5 py-0.5 rounded font-mono">{w}</span>
-                            ))
-                          : <span className="text-gray-500">—</span>}
-                      </div>
-                    </td>
-                    <td className="p-3 text-right">
-                      <button
-                        onClick={() => setEditMember(m)}
-                        className="bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs px-3 py-1.5 rounded transition cursor-pointer"
-                      >
-                        Edit
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Panel title="Qualified this month" subtitle={`${leaders.length} athletes`}>
+          {leaders.length === 0 ? (
+            <Empty text="No one has 15 days yet." />
+          ) : (
+            <ul className="space-y-2 max-h-64 overflow-y-auto">
+              {leaders.slice(0, 10).map((a) => (
+                <li key={a.email} className="flex items-center justify-between gap-2 px-1 py-1">
+                  <span className="text-sm text-gray-200 truncate">{a.name}</span>
+                  <span className="text-sm font-black text-emerald-400">{a.days}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+
+        <Panel title="Can't reach 15" subtitle={behind.length ? 'Even if they come every remaining day' : 'Everyone can still make it'}>
+          {behind.length === 0 ? (
+            <Empty text="All checked-in athletes can still qualify." />
+          ) : (
+            <ul className="space-y-2 max-h-64 overflow-y-auto">
+              {behind.slice(0, 10).map((a) => (
+                <li key={a.email} className="flex items-center justify-between gap-2 px-1 py-1">
+                  <span className="text-sm text-gray-200 truncate">{a.name}</span>
+                  <span className="text-sm font-bold text-rose-400">{a.days} days</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
       </div>
     </section>
   );
+}
+
+function Kpi({ value, label, color }) {
+  return (
+    <div className="bg-gray-800 border border-gray-700 rounded-xl p-4">
+      <div className={`text-3xl sm:text-4xl font-black ${color}`}>{value}</div>
+      <div className="text-[10px] sm:text-xs uppercase font-bold text-gray-400 mt-1 leading-tight">{label}</div>
+    </div>
+  );
+}
+
+function MiniKpi({ value, label }) {
+  return (
+    <div className="bg-gray-800/70 border border-gray-700/80 rounded-xl px-3 py-3 text-center">
+      <div className="text-lg sm:text-2xl font-black text-gray-100">{value}</div>
+      <div className="text-[9px] sm:text-[10px] uppercase font-bold text-gray-500 mt-0.5">{label}</div>
+    </div>
+  );
+}
+
+function Panel({ title, subtitle, children }) {
+  return (
+    <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 sm:p-5">
+      <div className="mb-3">
+        <h3 className="text-sm font-bold text-white">{title}</h3>
+        {subtitle && <p className="text-[11px] text-gray-400 mt-0.5">{subtitle}</p>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Empty({ text }) {
+  return <p className="text-sm text-gray-500 italic">{text}</p>;
 }

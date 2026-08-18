@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Papa from 'papaparse';
 import Dashboard from './components/Dashboard';
+import Athletes from './components/Athletes';
 import CurrentMonth from './components/CurrentMonth';
 import { checkinsDb, collection as checkinsCollection, onSnapshot as checkinsOnSnapshot } from './checkinsFirebase';
 import LiveView from './components/LiveView';
@@ -184,9 +185,12 @@ export default function App() {
     }
   }
 
-  // Live listener on swarm-checkins master DB
+  // Live listener on swarm-checkins + poll fallback (rules often block cross-project snapshots)
   useEffect(() => {
     if (!isAuthenticated) return;
+
+    loadCheckinsFromMaster();
+    const poll = setInterval(loadCheckinsFromMaster, 15000);
 
     const unsubCheckins = checkinsOnSnapshot(
       checkinsCollection(checkinsDb, 'checkins'),
@@ -212,6 +216,7 @@ export default function App() {
     );
 
     return () => {
+      clearInterval(poll);
       unsubCheckins();
       unsubMonthly();
     };
@@ -613,7 +618,7 @@ export default function App() {
           </div>
         </div>
         <nav className="flex gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 scrollbar-thin -mx-1 px-1">
-          {['roster', 'live', 'current', 'lists', 'upload', 'draw', 'settings'].map(tab => (
+          {['roster', 'athletes', 'live', 'current', 'lists', 'upload', 'draw', 'settings'].map(tab => (
             <button 
               key={tab}
               onClick={() => setActiveTab(tab)} 
@@ -621,6 +626,7 @@ export default function App() {
             >
               <span className="sm:hidden">
                 {tab === 'roster' && '📊'}
+                {tab === 'athletes' && '👥'}
                 {tab === 'live' && '⚡ Live'}
                 {tab === 'current' && '📅 Month'}
                 {tab === 'lists' && '🏆 Lists'}
@@ -630,6 +636,7 @@ export default function App() {
               </span>
               <span className="hidden sm:inline">
                 {tab === 'roster' && 'Dashboard 📊'}
+                {tab === 'athletes' && 'Athletes 👥'}
                 {tab === 'live' && 'Live View ⚡'}
                 {tab === 'current' && 'Current Month 📅'}
                 {tab === 'lists' && 'Club Lists 🏆'}
@@ -647,16 +654,23 @@ export default function App() {
         {/* 1. DASHBOARD TAB */}
         {activeTab === 'roster' && (
           <Dashboard
+            checkins={checkins}
+            appSettings={appSettings}
+            activeMembersCount={activeMembersCount}
+            activeStreaksCount={activeStreaksCount}
+            unbrokenCount2026={unbrokenCount2026}
+            setActiveTab={setActiveTab}
+          />
+        )}
+
+        {activeTab === 'athletes' && (
+          <Athletes
             masterMembers={masterMembers}
             monthlyRecords={monthlyRecords}
             rosterStatusFilter={rosterStatusFilter}
             setRosterStatusFilter={setRosterStatusFilter}
             rosterSearch={rosterSearch}
             setRosterSearch={setRosterSearch}
-            activeMembersCount={activeMembersCount}
-            activeStreaksCount={activeStreaksCount}
-            unbrokenCount2026={unbrokenCount2026}
-            totalLifetimeQuals={totalLifetimeQuals}
             getMemberStreak={getMemberStreak}
             setHistoryMember={setHistoryMember}
             setEditMember={setEditMember}
