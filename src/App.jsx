@@ -771,13 +771,14 @@ export default function App() {
           return memberName && cn === memberName;
         });
         memberCheckins.sort((a, b) => (b.classDate || '').localeCompare(a.classDate || ''));
-        const last = memberCheckins[0] || null;
+        const countable = memberCheckins.filter(c => !(c.className || '').toLowerCase().includes('coach meeting'));
+        const last = countable[0] || memberCheckins[0] || null;
         const chipTotal = last?.totalAttendanceCount ?? null;
-        const daysThisMonth = memberCheckins.filter(c => {
-          const now = new Date();
-          const prefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-          return (c.classDate || '').startsWith(prefix);
-        }).length;
+        const nowH = new Date();
+        const prefix = `${nowH.getFullYear()}-${String(nowH.getMonth() + 1).padStart(2, '0')}`;
+        const daysThisMonth = new Set(
+          countable.filter(c => (c.classDate || '').startsWith(prefix)).map(c => c.classDate)
+        ).size;
 
         return (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">

@@ -2,6 +2,18 @@ import React, { useState } from 'react';
 
 const monthNames = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
+function isCoachMeeting(className) {
+  return (className || "").toLowerCase().includes("coach meeting");
+}
+
+function formatClassTime(raw) {
+  if (raw == null || raw === "") return "";
+  const s = String(raw).trim();
+  const m = s.match(/^(\d{1,2}):(\d{1,2})(\s*[ap]m)?$/i);
+  if (!m) return s;
+  return `${m[1]}:${String(m[2]).padStart(2, "0")}${m[3] || ""}`;
+}
+
 export default function CurrentMonth({ checkins, appSettings, masterMembers = [], setHistoryMember, checkinsApi, onCheckinsChanged }) {
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(null); // athlete row
@@ -32,14 +44,18 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
         totalAttendanceCount: c.totalAttendanceCount || null
       };
     }
-    byEmail[email].dates.add(c.classDate);
     byEmail[email].classes.push({
       date: c.classDate,
       name: c.className || '',
       time: c.classTime || '',
       docId: c.id,
-      totalAttendanceCount: c.totalAttendanceCount
+      totalAttendanceCount: c.totalAttendanceCount,
+      isCoachMeeting: isCoachMeeting(c.className)
     });
+    // Days only count if they did a real class (not coach-meeting-only)
+    if (!isCoachMeeting(c.className)) {
+      byEmail[email].dates.add(c.classDate);
+    }
     // keep latest CHIP total
     if (c.totalAttendanceCount != null) {
       byEmail[email].totalAttendanceCount = c.totalAttendanceCount;
@@ -49,14 +65,16 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
   let rows = Object.values(byEmail).map(m => {
     const sortedDates = Array.from(m.dates).sort();
     const lastDate = sortedDates[sortedDates.length - 1] || null;
-    const lastClass = (m.classes || []).filter(c => c.date === lastDate).pop() || null;
+    const lastClass = (m.classes || [])
+      .filter(c => c.date === lastDate && !c.isCoachMeeting)
+      .pop() || (m.classes || []).filter(c => c.date === lastDate).pop() || null;
     return {
       ...m,
       days: m.dates.size,
       sortedDates,
       lastDate,
       lastClassName: lastClass?.name || '',
-      lastClassTime: lastClass?.time || ''
+      lastClassTime: formatClassTime(lastClass?.time || '')
     };
   });
 
