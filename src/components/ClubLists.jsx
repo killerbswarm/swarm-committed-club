@@ -28,6 +28,44 @@ export default function ClubLists({
 }) {
   const now = new Date();
   const currentMonthDocId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const yearsFromData = Array.from(
+    new Set(
+      (monthlyRecords || [])
+        .map((r) => (r.id || '').split('-')[0])
+        .filter((y) => /^\d{4}$/.test(y))
+        .map(Number)
+    )
+  ).sort((a, b) => b - a);
+  const years = yearsFromData.length ? yearsFromData : [2026, 2025, 2024];
+
+  function monthRec(docId) {
+    return (monthlyRecords || []).find((r) => r.id === docId);
+  }
+
+  function quarterMonthIds(year, qNum) {
+    const start = (qNum - 1) * 3 + 1;
+    return [0, 1, 2].map((i) => `${year}-${String(start + i).padStart(2, '0')}`);
+  }
+
+  function membersForQuarter(year, qNum) {
+    const ids = quarterMonthIds(year, qNum);
+    const recs = ids.map(monthRec).filter(Boolean);
+    if (recs.length < 3) return [];
+    return masterMembers.filter((m) =>
+      recs.every((r) => (r.qualifierIds || []).includes(m.id))
+    );
+  }
+
+  function membersUnbroken(year) {
+    const recs = (monthlyRecords || []).filter((r) => {
+      if (!(r.id || '').startsWith(`${year}-`)) return false;
+      return r.id < currentMonthDocId || r.isUploaded;
+    });
+    if (recs.length === 0) return [];
+    return masterMembers.filter((m) =>
+      recs.every((r) => (r.qualifierIds || []).includes(m.id))
+    );
+  }
 
   return (
     <section className="space-y-4 sm:space-y-6">
@@ -66,10 +104,14 @@ export default function ClubLists({
               {listSubTab === 'monthly' && monthlyRecords.map(r => (
                 <option key={r.id} value={`M:${r.id}`}>{formatMonthYearDisplay(r.id)} ({(r.qualifierIds || []).length} qualified)</option>
               ))}
-              {listSubTab === 'quarterly' && [2026, 2025].map(yr => [4, 3, 2, 1].map(qNum => (
-                <option key={`${yr}-Q${qNum}`} value={`Q:${yr}-Q${qNum}`}>{`Q${qNum} ${yr}`}</option>
-              )))}
-              {listSubTab === 'unbroken' && [2026, 2025].map(yr => (
+              {listSubTab === 'quarterly' && years.flatMap((yr) =>
+                [4, 3, 2, 1].map((qNum) => (
+                  <option key={`${yr}-Q${qNum}`} value={`Q:${yr}-Q${qNum}`}>
+                    {`Q${qNum} ${yr}`}
+                  </option>
+                ))
+              )}
+              {listSubTab === 'unbroken' && years.map((yr) => (
                 <option key={`unbroken-${yr}`} value={`unbroken-${yr}`}>{yr} Unbroken</option>
               ))}
             </select>
@@ -111,19 +153,20 @@ export default function ClubLists({
                     list = masterMembers.filter(m => qSet.has(m.id));
                   }
                 } else if (clubListSelectedId.startsWith('Q:')) {
-                  // Quarterly - keep simple for now (uses quarterlyRecords if available)
                   const key = clubListSelectedId.replace('Q:', '');
                   const rec = (quarterlyRecords || []).find(r => r.id === key || r.id === clubListSelectedId);
-                  if (rec) {
+                  if (rec && (rec.qualifierIds || rec.memberIds || []).length) {
                     const qSet = new Set(rec.qualifierIds || rec.memberIds || []);
                     list = masterMembers.filter(m => qSet.has(m.id));
+                  } else {
+                    const [yrStr, qStr] = key.split('-');
+                    const yr = parseInt(yrStr, 10);
+                    const qNum = parseInt(String(qStr).replace('Q', ''), 10);
+                    if (yr && qNum) list = membersForQuarter(yr, qNum);
                   }
                 } else if (clubListSelectedId.startsWith('unbroken-')) {
                   const yr = parseInt(clubListSelectedId.replace('unbroken-', ''), 10);
-                  const yearRecs = monthlyRecords.filter(r => r.year === yr && (r.id < currentMonthDocId || r.isUploaded));
-                  if (yearRecs.length > 0) {
-                    list = masterMembers.filter(m => yearRecs.every(r => (r.qualifierIds || []).includes(m.id)));
-                  }
+                  list = membersUnbroken(yr);
                 }
 
                 if (clubListSearch) {
