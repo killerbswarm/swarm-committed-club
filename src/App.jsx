@@ -4,7 +4,6 @@ import Dashboard from './components/Dashboard';
 import Athletes from './components/Athletes';
 import CurrentMonth from './components/CurrentMonth';
 import { checkinsDb, collection as checkinsCollection, onSnapshot as checkinsOnSnapshot } from './checkinsFirebase';
-import LiveView from './components/LiveView';
 import ClubLists from './components/ClubLists';
 import Upload from './components/Upload';
 import Draws from './components/Draws';
@@ -42,7 +41,7 @@ export default function App() {
   const [isAuthLoading, setIsAuthLoading] = useState(false);
 
   // Tab State
-  const [activeTab, setActiveTab] = useState('roster'); // roster, live, lists, upload, draw, settings
+  const [activeTab, setActiveTab] = useState('roster'); // roster, current, lists, upload, draw, settings
   const [listSubTab, setListSubTab] = useState('monthly'); // monthly, quarterly, unbroken
 
   // Core Data Cache
@@ -55,8 +54,6 @@ export default function App() {
   const [rosterStatusFilter, setRosterStatusFilter] = useState('active');
   const [rosterSearch, setRosterSearch] = useState('');
   
-  const [liveMonthId, setLiveMonthId] = useState('');
-  const [liveSearch, setLiveSearch] = useState('');
 
   // New system - Current Month (dated checkins)
   const [checkins, setCheckins] = useState([]);
@@ -207,10 +204,6 @@ export default function App() {
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         list.sort((a, b) => b.id.localeCompare(a.id));
         setMonthlyRecords(list);
-        setLiveMonthId(prev => {
-          if (!prev && list.length > 0) return list[0].id;
-          return prev;
-        });
       },
       (err) => console.error("Monthly records listener error:", err)
     );
@@ -618,7 +611,7 @@ export default function App() {
           </div>
         </div>
         <nav className="flex gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 scrollbar-thin -mx-1 px-1">
-          {['roster', 'athletes', 'live', 'current', 'lists', 'upload', 'draw', 'settings'].map(tab => (
+          {['roster', 'athletes', 'current', 'lists', 'upload', 'draw', 'settings'].map(tab => (
             <button 
               key={tab}
               onClick={() => setActiveTab(tab)} 
@@ -627,7 +620,6 @@ export default function App() {
               <span className="sm:hidden">
                 {tab === 'roster' && '📊'}
                 {tab === 'athletes' && '👥'}
-                {tab === 'live' && '⚡ Live'}
                 {tab === 'current' && '📅 Month'}
                 {tab === 'lists' && '🏆 Lists'}
                 {tab === 'upload' && '📥'}
@@ -637,7 +629,6 @@ export default function App() {
               <span className="hidden sm:inline">
                 {tab === 'roster' && 'Dashboard 📊'}
                 {tab === 'athletes' && 'Athletes 👥'}
-                {tab === 'live' && 'Live View ⚡'}
                 {tab === 'current' && 'Current Month 📅'}
                 {tab === 'lists' && 'Club Lists 🏆'}
                 {tab === 'upload' && 'Upload 📥'}
@@ -678,22 +669,7 @@ export default function App() {
           />
         )}
 
-        {/* 2. LIVE VIEW TAB */}
-        {activeTab === 'live' && (
-          <LiveView
-            monthlyRecords={monthlyRecords}
-            masterMembers={masterMembers}
-            liveMonthId={liveMonthId}
-            setLiveMonthId={setLiveMonthId}
-            liveSearch={liveSearch}
-            setLiveSearch={setLiveSearch}
-            appSettings={appSettings}
-            setHistoryMember={setHistoryMember}
-            loadAllData={loadAllData}
-          />
-        )}
-
-        {/* 2b. CURRENT MONTH TAB (New dated checkins system) */}
+        {/* CURRENT MONTH */}
         {activeTab === 'current' && (
           <CurrentMonth checkins={checkins} appSettings={appSettings} masterMembers={masterMembers} setHistoryMember={setHistoryMember} checkinsApi={CHECKINS_API} onCheckinsChanged={loadCheckinsFromMaster} />
         )}
