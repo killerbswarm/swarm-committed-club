@@ -13,6 +13,7 @@ import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, 
   writeBatch, serverTimestamp, arrayUnion, arrayRemove, onSnapshot 
 } from './firebase';
+import AppVersion from './components/AppVersion';
 
 const AUTH_PASS = "Coach1103!";
 const CHECKINS_API = "https://us-central1-swarm-checkins-5436d.cloudfunctions.net";
@@ -48,7 +49,7 @@ export default function App() {
   const [masterMembers, setMasterMembers] = useState([]);
   const [monthlyRecords, setMonthlyRecords] = useState([]);
   const [quarterlyRecords, setQuarterlyRecords] = useState([]);
-  const [appSettings, setAppSettings] = useState({ minCheckins: 15, ghlWebhook: '', theme: 'dark', inactiveThreshold: 12 });
+  const [appSettings, setAppSettings] = useState({ minCheckins: 15, theme: 'dark', inactiveThreshold: 12 });
 
   // Filters & Search
   const [rosterStatusFilter, setRosterStatusFilter] = useState('active');
@@ -139,7 +140,6 @@ export default function App() {
         const data = snap.data();
         setAppSettings({
           minCheckins: data.minCheckins !== undefined ? data.minCheckins : 15,
-          ghlWebhook: data.ghlWebhook || '',
           theme: data.theme || 'dark',
           inactiveThreshold: data.inactiveThreshold !== undefined ? data.inactiveThreshold : 12
         });
@@ -318,23 +318,24 @@ export default function App() {
     document.body.removeChild(form);
   }
 
-  async function sendWinnerGhl(winnerName, prizeText) {
-    if (!appSettings.ghlWebhook) {
-      alert("Please enter and save your GoHighLevel Webhook URL in Settings first.");
-      return;
-    }
-    try {
-      setGhlStatus("Sending webhook...");
-      postDataViaHtmlForm(appSettings.ghlWebhook, {
-        name: winnerName,
-        prize: prizeText || '',
-        source: 'Committed Club Tracker'
-      });
-      setGhlStatus("Success! Prize SMS triggered in GoHighLevel 🎉");
-    } catch (err) {
-      setGhlStatus(`Error: ${err.message}`);
-    }
+ async function sendWinnerGhl(winnerName, prizeText) {
+  const webhook = import.meta.env.VITE_ZAPIER_WEBHOOK;
+  if (!webhook) {
+    alert("VITE_ZAPIER_WEBHOOK is not set in .env");
+    return;
   }
+  try {
+    setGhlStatus("Sending webhook...");
+    postDataViaHtmlForm(webhook, {
+      name: winnerName,
+      prize: prizeText || '',
+      source: 'Committed Club Tracker'
+    });
+    setGhlStatus("Success! Prize SMS triggered in GoHighLevel 🎉");
+  } catch (err) {
+    setGhlStatus(`Error: ${err.message}`);
+  }
+}
 
   // Upload Logic
   async function processUpload() {
@@ -580,7 +581,6 @@ export default function App() {
         <div className="bg-gray-800 border border-gray-700 p-6 sm:p-8 rounded-2xl max-w-sm w-full shadow-2xl text-center space-y-4">
           <div className="bg-amber-500 text-gray-900 font-black px-3 py-1 rounded-lg text-2xl tracking-wider inline-block">CC</div>
           <h2 className="text-xl font-bold text-white leading-tight">Committed Club Tracker</h2>
-          <p className="text-xs text-gray-400">Please enter the coach password to access the app.</p>
           <form onSubmit={handleAuthSubmit} className="space-y-3">
             <input 
               type="password" 
@@ -607,7 +607,7 @@ export default function App() {
           <div className="bg-amber-500 text-gray-900 font-black px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-lg text-lg sm:text-xl tracking-wider shrink-0">CC</div>
           <div>
             <h1 className="text-base sm:text-xl font-bold tracking-wide text-white leading-tight">Committed Club Tracker</h1>
-            <p className="text-[10px] sm:text-xs text-gray-400">React + Firestore Edition</p>
+            <AppVersion />
           </div>
         </div>
         <nav className="flex gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 scrollbar-thin -mx-1 px-1">
@@ -675,7 +675,7 @@ export default function App() {
         )}
 
         {/* 3. CLUB LISTS TAB */}
-        {activeTab === 'lists' && (
+       {activeTab === 'lists' && (
           <ClubLists
             listSubTab={listSubTab}
             setListSubTab={setListSubTab}
@@ -688,6 +688,7 @@ export default function App() {
             masterMembers={masterMembers}
             appSettings={appSettings}
             setHistoryMember={setHistoryMember}
+            checkins={checkins}
           />
         )}
 

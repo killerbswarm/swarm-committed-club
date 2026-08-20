@@ -29,14 +29,12 @@ export default function Settings({ appSettings, saveSettings }) {
         </div>
 
         <div className="border-t border-gray-700 pt-4">
-          <label className="block text-xs uppercase font-bold text-amber-400 mb-1">GHL Winner Webhook URL</label>
-          <input
-            type="text"
-            value={appSettings.ghlWebhook}
-            onChange={(e) => saveSettings({ ghlWebhook: e.target.value.trim() })}
-            className="bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white font-mono w-full"
-            placeholder="https://services.leadconnectorhq.com/hooks/..."
-          />
+          <label className="block text-xs uppercase font-bold text-amber-400 mb-1">Winner webhook</label>
+          <p className="text-xs text-gray-400">
+            {import.meta.env.VITE_ZAPIER_WEBHOOK
+              ? "Loaded from .env (VITE_ZAPIER_WEBHOOK)"
+              : "Missing — add VITE_ZAPIER_WEBHOOK to .env and restart Vite"}
+          </p>
         </div>
       </div>
     </section>

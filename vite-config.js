@@ -1,10 +1,11 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-
-export default defineConfig({
-  plugins: [react()],
-  build: {
-    outDir: 'dist',
-    emptyOutDir: true,
-  },
-});
+function writeVersionPlugin() {
+  const write = () => {
+    mkdirSync('public', { recursive: true })
+    writeFileSync('public/version.json', JSON.stringify({ version: APP_VERSION }, null, 2))
+  }
+  return {
+    name: 'write-version',
+    buildStart: write,
+    configureServer: write,
+  }
+}
