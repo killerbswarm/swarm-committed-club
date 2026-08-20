@@ -619,10 +619,8 @@ export default function App() {
           <div>
             <h1 className="text-base sm:text-xl font-bold tracking-wide text-white leading-tight">Committed Club Tracker</h1>
             <div className="text-xs text-gray-400 font-mono">
-  <div className="text-xs text-gray-400 font-mono">
-  {typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev"}
-</div>
-</div>
+              <AppVersion />
+            </div>
           </div>
         </div>
         <nav className="flex gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 scrollbar-thin -mx-1 px-1">
