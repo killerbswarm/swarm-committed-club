@@ -34,6 +34,17 @@ function formatMonthYearDisplay(docId) {
   return docId;
 }
 
+function VersionLabel() {
+  const [v, setV] = useState("…");
+  useEffect(() => {
+    fetch("/version.json?t=" + Date.now())
+      .then((r) => r.json())
+      .then((d) => setV(d.version || "missing"))
+      .catch(() => setV("error"));
+  }, []);
+  return <div className="text-xs text-gray-400 font-mono">v{v}</div>;
+}
+
 export default function App() {
   // Auth & System State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -607,7 +618,11 @@ export default function App() {
           <div className="bg-amber-500 text-gray-900 font-black px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-lg text-lg sm:text-xl tracking-wider shrink-0">CC</div>
           <div>
             <h1 className="text-base sm:text-xl font-bold tracking-wide text-white leading-tight">Committed Club Tracker</h1>
-            <AppVersion />
+            <div className="text-xs text-gray-400 font-mono">
+  <div className="text-xs text-gray-400 font-mono">
+  {typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev"}
+</div>
+</div>
           </div>
         </div>
         <nav className="flex gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 scrollbar-thin -mx-1 px-1">

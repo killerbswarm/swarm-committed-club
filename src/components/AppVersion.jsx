@@ -5,16 +5,16 @@ export default function AppVersion() {
 
   useEffect(() => {
     fetch("/version.json?t=" + Date.now(), { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d?.version) setVersion(d.version);
-      })
+      .then((r) => r.json())
+      .then((d) => setVersion(d.version || ""))
       .catch(() => {});
   }, []);
 
+  if (!version) return null;
+
   return (
     <div className="text-[10px] text-gray-400 font-mono">
-      {version ? `v${version}` : ""}
+      v{version}
     </div>
   );
 }

@@ -1,11 +1,17 @@
-function writeVersionPlugin() {
-  const write = () => {
-    mkdirSync('public', { recursive: true })
-    writeFileSync('public/version.json', JSON.stringify({ version: APP_VERSION }, null, 2))
-  }
-  return {
-    name: 'write-version',
-    buildStart: write,
-    configureServer: write,
-  }
-}
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+const APP_VERSION = new Date()
+  .toISOString()
+  .replace('T', '-')
+  .replace(/:/g, '')
+  .slice(0, 16)
+
+console.log('App version', APP_VERSION)
+
+export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(APP_VERSION),
+  },
+  plugins: [react()],
+})

@@ -1,1 +1,2 @@
-export const APP_VERSION = import.meta.env.APP_VERSION || "dev";
+export const APP_VERSION =
+  typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev";
