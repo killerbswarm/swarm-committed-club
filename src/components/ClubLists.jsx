@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 const monthNames = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -54,11 +54,14 @@ export default function ClubLists({
   appSettings,
   setHistoryMember,
   checkins = [],
-  toggleDisqualify
+  toggleDisqualify,
+  saveWinner
 }) {
   const now = new Date();
   const currentMonthDocId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const minCheckins = appSettings?.minCheckins || 15;
+  const [winnerPick, setWinnerPick] = useState('');
+  const [savingWinner, setSavingWinner] = useState(false);
 
   const yearsFromData = Array.from(
     new Set(
@@ -144,22 +147,114 @@ export default function ClubLists({
     return masterMembers.filter((m) => use.every((id) => qualifierIdsForMonth(id).has(m.id)));
   }
 
+  let list = [];
+  let showDays = false;
+  let monthDocId = '';
+  let quarterKey = '';
+  let winnerId = '';
+  let winnerName = '';
+  let dqSet = new Set();
+  let autoDq = new Map();
+
+  if (clubListSelectedId.startsWith('M:')) {
+    monthDocId = clubListSelectedId.replace('M:', '');
+    const rec = monthRec(monthDocId);
+    dqSet = new Set(rec?.unqualifiedIds || []);
+    autoDq = pastWinnersForMonth(monthlyRecords, quarterlyRecords, monthDocId);
+    if (hasLiveCheckins(monthDocId)) {
+      list = liveMonthMembers(monthDocId);
+      showDays = true;
+    } else if (rec) {
+      const qSet = new Set(rec.qualifierIds || []);
+      list = (masterMembers || []).filter((m) => qSet.has(m.id)).map((m) => ({
+        ...m,
+        days: rec.checkinsMap ? rec.checkinsMap[m.id] : undefined
+      }));
+      showDays = !!(rec.checkinsMap);
+    }
+    if (rec) {
+      winnerId = rec.winnerId || rec.winner || '';
+      winnerName = rec.winnerName || '';
+    }
+  } else if (clubListSelectedId.startsWith('Q:')) {
+    quarterKey = clubListSelectedId.replace('Q:', '');
+    const rec = (quarterlyRecords || []).find((r) => r.id === quarterKey || r.id === clubListSelectedId);
+    const [yrStr, qStr] = quarterKey.split('-');
+    const yr = parseInt(yrStr, 10);
+    const qNum = parseInt(String(qStr).replace('Q', ''), 10);
+    if (yr && qNum) list = membersForQuarter(yr, qNum);
+    if (rec) {
+      winnerId = rec.winnerId || rec.winner || '';
+      winnerName = rec.winnerName || '';
+    }
+  } else if (clubListSelectedId.startsWith('unbroken-')) {
+    const yr = parseInt(clubListSelectedId.replace('unbroken-', ''), 10);
+    list = membersUnbroken(yr);
+  }
+
+  const winnerMember = (masterMembers || []).find((m) =>
+    (winnerId && m.id === winnerId) ||
+    (winnerName && m.name && m.name.toLowerCase() === String(winnerName).toLowerCase())
+  );
+  if (winnerMember) winnerId = winnerMember.id;
+
+  if (clubListSearch) {
+    list = list.filter((m) => (m.name || '').toLowerCase().includes(clubListSearch.toLowerCase()));
+  }
+
+  list.sort((a, b) => {
+    if (winnerId && a.id === winnerId) return -1;
+    if (winnerId && b.id === winnerId) return 1;
+    if (showDays && (b.days || 0) !== (a.days || 0)) return (b.days || 0) - (a.days || 0);
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
+  async function handleSaveWinner(kind, docId) {
+    if (!saveWinner || !docId) return;
+    const member = list.find((m) => m.id === winnerPick) || null;
+    setSavingWinner(true);
+    try {
+      await saveWinner(kind, docId, member);
+      setWinnerPick('');
+    } catch (err) {
+      alert('Failed to save winner: ' + err.message);
+    } finally {
+      setSavingWinner(false);
+    }
+  }
+
+  async function handleClearWinner(kind, docId) {
+    if (!saveWinner || !docId) return;
+    if (!confirm('Clear the winner for this list?')) return;
+    setSavingWinner(true);
+    try {
+      await saveWinner(kind, docId, null);
+      setWinnerPick('');
+    } catch (err) {
+      alert('Failed to clear winner: ' + err.message);
+    } finally {
+      setSavingWinner(false);
+    }
+  }
+
+  const canEditWinner = !!(monthDocId || quarterKey);
+
   return (
     <section className="space-y-4 sm:space-y-6">
       <div className="bg-gray-800 p-3 sm:p-6 rounded-xl border border-gray-700 shadow-md">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 pb-4 border-b border-gray-700">
           <div>
-           <h2 className="text-base sm:text-xl font-bold text-amber-400">History</h2>
-<p className="text-gray-400 text-[11px] sm:text-xs">
-  Past monthly, quarterly, and unbroken lists. Uncheck someone to disqualify them from the wheel. Last-12-month winners are auto-DQ’d.
-</p>
+            <h2 className="text-base sm:text-xl font-bold text-amber-400">History</h2>
+            <p className="text-gray-400 text-[11px] sm:text-xs">
+              Uncheck to disqualify. Auto-DQ is the default 12-month rule — you can still set anyone as winner.
+            </p>
           </div>
           <div className="flex bg-gray-900 p-1 rounded-xl border border-gray-700 gap-1 w-full sm:w-auto">
             {['monthly', 'quarterly', 'unbroken'].map((sub) => (
               <button
                 key={sub}
                 type="button"
-                onClick={() => { setListSubTab(sub); setClubListSelectedId(''); }}
+                onClick={() => { setListSubTab(sub); setClubListSelectedId(''); setWinnerPick(''); }}
                 className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold ${
                   listSubTab === sub ? 'bg-amber-500 text-gray-900' : 'text-gray-300'
                 }`}
@@ -179,7 +274,7 @@ export default function ClubLists({
             </label>
             <select
               value={clubListSelectedId}
-              onChange={(e) => setClubListSelectedId(e.target.value)}
+              onChange={(e) => { setClubListSelectedId(e.target.value); setWinnerPick(''); }}
               className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs sm:text-sm text-white focus:outline-none font-semibold cursor-pointer"
             >
               <option value="">-- Select --</option>
@@ -208,6 +303,42 @@ export default function ClubLists({
           </div>
         </div>
 
+        {canEditWinner && (
+          <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-2 bg-gray-900/50 border border-gray-700 rounded-xl p-3">
+            <div className="text-[11px] uppercase font-bold text-gray-400 shrink-0">
+              Winner {winnerMember ? `· ${winnerMember.name}` : winnerName ? `· ${winnerName}` : '· none'}
+            </div>
+            <select
+              value={winnerPick}
+              onChange={(e) => setWinnerPick(e.target.value)}
+              className="flex-1 bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white"
+            >
+              <option value="">Select athlete…</option>
+              {list.filter((m) => !m.isCoach).map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!winnerPick || savingWinner || !saveWinner}
+              onClick={() => handleSaveWinner(monthDocId ? 'month' : 'quarter', monthDocId || quarterKey)}
+              className="bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-gray-900 font-bold px-3 py-2 rounded-lg text-xs uppercase"
+            >
+              {savingWinner ? 'Saving…' : 'Set winner'}
+            </button>
+            {(winnerId || winnerName) && (
+              <button
+                type="button"
+                disabled={savingWinner || !saveWinner}
+                onClick={() => handleClearWinner(monthDocId ? 'month' : 'quarter', monthDocId || quarterKey)}
+                className="bg-gray-700 hover:bg-gray-600 text-white font-bold px-3 py-2 rounded-lg text-xs uppercase"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs sm:text-sm text-gray-300">
             <thead className="bg-gray-900 text-gray-400 uppercase text-[10px] sm:text-xs font-bold border-b border-gray-700">
@@ -220,74 +351,13 @@ export default function ClubLists({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-700/60">
-              {(() => {
-                let list = [];
-                let showDays = false;
-                let monthDocId = '';
-                if (!clubListSelectedId) {
-                  return <tr><td colSpan="5" className="p-6 text-center text-gray-500">Select a list above to view members.</td></tr>;
-                }
-
-                let winnerId = '';
-                let winnerName = '';
-                let dqSet = new Set();
-                let autoDq = new Map();
-
-                if (clubListSelectedId.startsWith('M:')) {
-                  monthDocId = clubListSelectedId.replace('M:', '');
-                  const rec = monthRec(monthDocId);
-                  dqSet = new Set(rec?.unqualifiedIds || []);
-                  autoDq = pastWinnersForMonth(monthlyRecords, quarterlyRecords, monthDocId);
-                  if (hasLiveCheckins(monthDocId)) {
-                    list = liveMonthMembers(monthDocId);
-                    showDays = true;
-                  } else if (rec) {
-                    const qSet = new Set(rec.qualifierIds || []);
-                    list = masterMembers.filter((m) => qSet.has(m.id));
-                  }
-                  if (rec) {
-                    winnerId = rec.winnerId || rec.winner || '';
-                    winnerName = rec.winnerName || '';
-                  }
-                } else if (clubListSelectedId.startsWith('Q:')) {
-                  const key = clubListSelectedId.replace('Q:', '');
-                  const rec = (quarterlyRecords || []).find((r) => r.id === key || r.id === clubListSelectedId);
-                  const [yrStr, qStr] = key.split('-');
-                  const yr = parseInt(yrStr, 10);
-                  const qNum = parseInt(String(qStr).replace('Q', ''), 10);
-                  if (yr && qNum) list = membersForQuarter(yr, qNum);
-                  if (rec) {
-                    winnerId = rec.winnerId || rec.winner || '';
-                    winnerName = rec.winnerName || '';
-                  }
-                } else if (clubListSelectedId.startsWith('unbroken-')) {
-                  const yr = parseInt(clubListSelectedId.replace('unbroken-', ''), 10);
-                  list = membersUnbroken(yr);
-                }
-
-                const winnerMember = masterMembers.find((m) =>
-                  (winnerId && m.id === winnerId) ||
-                  (winnerName && m.name && m.name.toLowerCase() === String(winnerName).toLowerCase())
-                );
-                if (winnerMember) winnerId = winnerMember.id;
-
-                if (clubListSearch) {
-                  list = list.filter((m) => (m.name || '').toLowerCase().includes(clubListSearch.toLowerCase()));
-                }
-
-                list.sort((a, b) => {
-                  if (winnerId && a.id === winnerId) return -1;
-                  if (winnerId && b.id === winnerId) return 1;
-                  if (showDays && (b.days || 0) !== (a.days || 0)) return (b.days || 0) - (a.days || 0);
-                  return (a.name || '').localeCompare(b.name || '');
-                });
-
-                if (!list.length) {
-                  return <tr><td colSpan="5" className="p-6 text-center text-gray-500">No members found for this selection.</td></tr>;
-                }
-
-                return list.map((m, idx) => {
-                  const isWinner = winnerId && m.id === winnerId;
+              {!clubListSelectedId ? (
+                <tr><td colSpan="5" className="p-6 text-center text-gray-500">Select a list above to view members.</td></tr>
+              ) : list.length === 0 ? (
+                <tr><td colSpan="5" className="p-6 text-center text-gray-500">No members found for this selection.</td></tr>
+              ) : (
+                list.map((m, idx) => {
+                  const isWinner = !!(winnerId && m.id === winnerId);
                   const wonWhen = autoDq.get(m.id);
                   const manualDq = dqSet.has(m.id);
                   const inDraw = !m.isCoach && !wonWhen && !manualDq;
@@ -300,7 +370,6 @@ export default function ClubLists({
                             checked={inDraw}
                             onChange={(e) => toggleDisqualify && toggleDisqualify(monthDocId, m.id, !e.target.checked)}
                             className="accent-amber-500 cursor-pointer"
-                            title={inDraw ? 'In the wheel' : 'Disqualified'}
                           />
                         ) : (
                           <input type="checkbox" checked={false} disabled className="opacity-40" />
@@ -310,26 +379,30 @@ export default function ClubLists({
                       <td className="p-2 sm:p-3">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="cursor-pointer hover:underline text-amber-400 font-bold" onClick={() => setHistoryMember(m)}>{m.name}</span>
-                          {isWinner && <span className="bg-amber-500 text-gray-900 text-[9px] px-1.5 py-0.5 rounded font-black">🏆 WINNER</span>}
+                          {isWinner && <span className="bg-amber-500 text-gray-900 text-[9px] px-1.5 py-0.5 rounded font-black">WINNER</span>}
                           {m.isCoach && <span className="bg-purple-900/60 text-purple-300 border border-purple-700/50 text-[9px] px-1.5 py-0.5 rounded font-bold">COACH</span>}
                         </div>
                       </td>
-                      <td className="p-2 sm:p-3 text-center font-black text-white">{showDays ? m.days : '—'}</td>
+                      <td className="p-2 sm:p-3 text-center font-black text-white">{showDays && m.days != null ? m.days : '—'}</td>
                       <td className="p-2 sm:p-3 text-center">
                         {m.isCoach ? (
                           <span className="bg-purple-900/60 text-purple-300 border border-purple-700/50 px-2.5 py-1 rounded-full text-[10px] font-bold">Coach</span>
+                        ) : isWinner ? (
+                          <span className="bg-amber-500 text-gray-900 px-2.5 py-1 rounded-full text-[10px] font-bold">
+                            Winner{wonWhen ? ` · waived ${wonWhen}` : ''}
+                          </span>
                         ) : wonWhen ? (
                           <span className="bg-red-900/60 text-red-300 border border-red-700/50 px-2.5 py-1 rounded-full text-[10px] font-bold">Auto DQ · {wonWhen}</span>
                         ) : manualDq ? (
                           <span className="bg-red-900/60 text-red-300 border border-red-700/50 px-2.5 py-1 rounded-full text-[10px] font-bold">Disqualified</span>
                         ) : (
-                          <span className="bg-green-900/60 text-green-300 border border-green-700/50 px-2.5 py-1 rounded-full text-[10px] font-bold">✓ In draw</span>
+                          <span className="bg-green-900/60 text-green-300 border border-green-700/50 px-2.5 py-1 rounded-full text-[10px] font-bold">In draw</span>
                         )}
                       </td>
                     </tr>
                   );
-                });
-              })()}
+                })
+              )}
             </tbody>
           </table>
         </div>

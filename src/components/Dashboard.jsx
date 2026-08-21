@@ -107,55 +107,51 @@ export default function Dashboard({
     (b.ms - a.ms)
   );
   const todayCount = recent.filter((c) => c.date === todayKey).length;
-
   const pctMonth = Math.min(100, Math.round((dayNum / lastDay) * 100));
 
   return (
-    <section className="space-y-5">
-      <div className="hero-banner rounded-2xl border border-amber-500/30 bg-gradient-to-br from-gray-800 to-gray-900 p-5 sm:p-6">
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-          <div>
-            <p className="text-[11px] uppercase tracking-widest font-bold text-amber-500/80">Committed Club</p>
-            <h1 className="text-2xl sm:text-3xl font-black text-white mt-1">{monthName} {year}</h1>
-            <p className="text-sm text-gray-400 mt-1">
+    <section className="space-y-3">
+      <div className="hero-banner rounded-xl border border-amber-500/30 bg-gradient-to-br from-gray-800 to-gray-900 px-4 py-3 sm:px-5 sm:py-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-widest font-bold text-amber-500/80">Committed Club</p>
+            <h1 className="text-xl sm:text-2xl font-black text-white leading-tight">{monthName} {year}</h1>
+            <p className="text-xs text-gray-400 mt-0.5">
               Day {dayNum} of {lastDay} · <span className="text-amber-400 font-semibold">{daysLeft} days left</span> · need {minDays} days
             </p>
           </div>
           <button
             onClick={() => setActiveTab && setActiveTab('current')}
-            className="self-start sm:self-auto text-xs font-bold bg-amber-500 hover:bg-amber-400 text-gray-900 px-3 py-2 rounded-lg"
+            className="shrink-0 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-gray-900 px-3 py-1.5 rounded-lg"
           >
-            Open Current Month →
+            Current Month →
           </button>
         </div>
-        <div className="mt-4 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+        <div className="mt-2.5 h-1.5 bg-gray-700 rounded-full overflow-hidden">
           <div className="h-full bg-amber-500" style={{ width: `${pctMonth}%` }} />
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Kpi value={checkedIn} label="Checked in this month" color="text-amber-400" />
-        <Kpi value={qualified} label="Already at 15+" color="text-emerald-500" />
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+        <Kpi value={checkedIn} label="Checked in" color="text-amber-400" />
+        <Kpi value={qualified} label="At 15+" color="text-emerald-500" />
         <Kpi value={onPace} label="Can still qualify" color="text-amber-500" />
         <Kpi value={behind.length} label="Can't hit 15" color="text-rose-500" />
-      </div>
-
-      <div className="grid grid-cols-3 gap-3">
         <Kpi value={activeMembersCount} label="Active roster" color="text-amber-400" />
         <Kpi value={activeStreaksCount} label="Active streaks" color="text-amber-400" />
         <Kpi value={unbrokenCount2026} label="2026 unbroken" color="text-amber-400" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Panel title="Needs a push" subtitle={`${almost.length} within 5 days of qualifying`}>
           {almost.length === 0 ? (
             <Empty text="Nobody is in the last 5 days right now." />
           ) : (
-            <ul className="space-y-1">
-              {almost.slice(0, 8).map((a) => (
-                <li key={a.email} className="flex items-center justify-between gap-2 rounded-lg px-2 py-2">
+            <ul>
+              {almost.slice(0, 10).map((a) => (
+                <li key={a.email} className="flex items-center justify-between gap-2 py-1 border-b border-gray-700/40 last:border-0">
                   <span className="text-sm font-semibold text-gray-100 truncate">{a.name}</span>
-                  <span className="text-sm font-bold text-amber-400 whitespace-nowrap">{a.days}/{minDays} · {a.need} to go</span>
+                  <span className="text-xs font-bold text-amber-400 whitespace-nowrap">{a.days}/{minDays} · {a.need} to go</span>
                 </li>
               ))}
             </ul>
@@ -166,13 +162,15 @@ export default function Dashboard({
           {recent.length === 0 ? (
             <Empty text="No check-ins this month yet." />
           ) : (
-            <ul className="space-y-1 max-h-72 overflow-y-auto">
+            <ul className="max-h-72 overflow-y-auto">
               {recent.slice(0, 20).map((c, idx) => (
-                <li key={`${c.name}-${c.date}-${c.time}-${idx}`} className="flex items-center justify-between gap-2 rounded-lg px-2 py-2">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-gray-100 truncate">{c.name}</div>
-                    <div className="text-[11px] text-gray-400">{c.date === todayKey ? 'Today' : c.date}</div>
-                  </div>
+                <li key={`${c.name}-${c.date}-${c.time}-${idx}`} className="flex items-center justify-between gap-2 py-1 border-b border-gray-700/40 last:border-0">
+                  <span className="text-sm font-semibold text-gray-100 truncate">
+                    {c.name}
+                    <span className="ml-1.5 font-normal text-gray-400">
+                      · {c.date === todayKey ? 'Today' : c.date}
+                    </span>
+                  </span>
                   <div className="text-xs text-gray-400 whitespace-nowrap">
                     {c.className}{c.time ? ` · ${c.time}` : ''}
                   </div>
@@ -188,19 +186,19 @@ export default function Dashboard({
 
 function Kpi({ value, label, color }) {
   return (
-    <div className="bg-gray-800 border border-gray-700 rounded-xl p-4">
-      <div className={`text-3xl sm:text-4xl font-black ${color}`}>{value}</div>
-      <div className="text-[10px] sm:text-xs uppercase font-bold text-gray-400 mt-1 leading-tight">{label}</div>
+    <div className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5">
+      <div className={`text-2xl font-black leading-none ${color}`}>{value}</div>
+      <div className="text-[10px] uppercase font-bold text-gray-400 mt-1 leading-tight">{label}</div>
     </div>
   );
 }
 
 function Panel({ title, subtitle, children }) {
   return (
-    <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 sm:p-5">
-      <div className="mb-3">
-        <h3 className="text-sm font-bold text-white">{title}</h3>
-        {subtitle && <p className="text-[11px] text-gray-400 mt-0.5">{subtitle}</p>}
+    <div className="bg-gray-800 border border-gray-700 rounded-xl px-4 py-3">
+      <div className="mb-1.5">
+        <h3 className="text-sm font-bold text-white leading-tight">{title}</h3>
+        {subtitle && <p className="text-[11px] text-gray-400">{subtitle}</p>}
       </div>
       {children}
     </div>

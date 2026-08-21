@@ -284,6 +284,30 @@ export default function App() {
     alert(`Error saving settings: ${err.message}`);
   }
 }
+  async function saveWinner(kind, docId, member) {
+  if (!docId) return;
+  const payload = {
+    winnerId: member?.id || '',
+    winner: member?.id || '',
+    winnerName: member?.name || '',
+    updatedAt: serverTimestamp()
+  };
+  if (kind === 'month') {
+    await setDoc(doc(db, 'monthly_records', docId), {
+      year: parseInt(docId.slice(0, 4), 10),
+      month: parseInt(docId.slice(5, 7), 10),
+      ...payload
+    }, { merge: true });
+    return;
+  }
+  const [yrStr, qStr] = String(docId).split('-');
+  await setDoc(doc(db, 'quarterly_records', docId), {
+    year: parseInt(yrStr, 10) || 0,
+    quarter: parseInt(String(qStr || '').replace('Q', ''), 10) || 0,
+    ...payload
+  }, { merge: true });
+}
+
 
   async function toggleDisqualify(monthDocId, memberId, shouldDisqualify) {
     if (!monthDocId || !memberId) return;
@@ -686,20 +710,21 @@ export default function App() {
 
         {activeTab === 'lists' && (
           <ClubLists
-            listSubTab={listSubTab}
-            setListSubTab={setListSubTab}
-            clubListSelectedId={clubListSelectedId}
-            setClubListSelectedId={setClubListSelectedId}
-            clubListSearch={clubListSearch}
-            setClubListSearch={setClubListSearch}
-            monthlyRecords={monthlyRecords}
-            quarterlyRecords={quarterlyRecords}
-            masterMembers={masterMembers}
-            appSettings={appSettings}
-            setHistoryMember={setHistoryMember}
-            checkins={checkins}
-            toggleDisqualify={toggleDisqualify}
-          />
+  listSubTab={listSubTab}
+  setListSubTab={setListSubTab}
+  clubListSelectedId={clubListSelectedId}
+  setClubListSelectedId={setClubListSelectedId}
+  clubListSearch={clubListSearch}
+  setClubListSearch={setClubListSearch}
+  monthlyRecords={monthlyRecords}
+  quarterlyRecords={quarterlyRecords}
+  masterMembers={masterMembers}
+  appSettings={appSettings}
+  setHistoryMember={setHistoryMember}
+  checkins={checkins}
+  toggleDisqualify={toggleDisqualify}
+  saveWinner={saveWinner}
+/>
         )}
 
         {activeTab === 'draw' && (
