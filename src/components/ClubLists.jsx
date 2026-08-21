@@ -149,10 +149,10 @@ export default function ClubLists({
       <div className="bg-gray-800 p-3 sm:p-6 rounded-xl border border-gray-700 shadow-md">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 pb-4 border-b border-gray-700">
           <div>
-            <h2 className="text-base sm:text-xl font-bold text-amber-400">Committed Club Historical Lists</h2>
-            <p className="text-gray-400 text-[11px] sm:text-xs">
-              Monthly lists use live check-ins when available. Uncheck someone to disqualify them from the wheel. Last-12-month winners are auto-DQ’d.
-            </p>
+           <h2 className="text-base sm:text-xl font-bold text-amber-400">History</h2>
+<p className="text-gray-400 text-[11px] sm:text-xs">
+  Past monthly, quarterly, and unbroken lists. Uncheck someone to disqualify them from the wheel. Last-12-month winners are auto-DQ’d.
+</p>
           </div>
           <div className="flex bg-gray-900 p-1 rounded-xl border border-gray-700 gap-1 w-full sm:w-auto">
             {['monthly', 'quarterly', 'unbroken'].map((sub) => (

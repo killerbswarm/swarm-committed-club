@@ -269,19 +269,21 @@ export default function App() {
     return pastWinnersMap;
   }
 
-  async function saveSettings(newSettings) {
-    try {
-      const updated = { ...appSettings, ...newSettings };
-      setAppSettings(updated);
-      await setDoc(doc(db, 'settings', 'app_config'), {
-        ...updated,
-        updatedAt: serverTimestamp()
-      }, { merge: true });
+ async function saveSettings(newSettings) {
+  try {
+    const updated = { ...appSettings, ...newSettings };
+    setAppSettings(updated);
+    await setDoc(doc(db, 'settings', 'app_config'), {
+      ...updated,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+    if (!(Object.keys(newSettings).length === 1 && newSettings.theme)) {
       alert("Settings saved successfully!");
-    } catch (err) {
-      alert(`Error saving settings: ${err.message}`);
     }
+  } catch (err) {
+    alert(`Error saving settings: ${err.message}`);
   }
+}
 
   async function toggleDisqualify(monthDocId, memberId, shouldDisqualify) {
     if (!monthDocId || !memberId) return;
@@ -624,32 +626,30 @@ export default function App() {
           </div>
         </div>
         <nav className="flex gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 scrollbar-thin -mx-1 px-1">
-          {['roster', 'athletes', 'current', 'lists', 'upload', 'draw', 'settings'].map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`tab-btn px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[11px] sm:text-sm font-semibold transition cursor-pointer shrink-0 whitespace-nowrap ${activeTab === tab ? 'bg-amber-500 text-gray-900' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-            >
-              <span className="sm:hidden">
-                {tab === 'roster' && '📊'}
-                {tab === 'athletes' && '👥'}
-                {tab === 'current' && '📅 Month'}
-                {tab === 'lists' && '🏆 Lists'}
-                {tab === 'upload' && '📥'}
-                {tab === 'draw' && '🎡'}
-                {tab === 'settings' && '⚙️'}
-              </span>
-              <span className="hidden sm:inline">
-                {tab === 'roster' && 'Dashboard 📊'}
-                {tab === 'athletes' && 'Athletes 👥'}
-                {tab === 'current' && 'Current Month 📅'}
-                {tab === 'lists' && 'Club Lists 🏆'}
-                {tab === 'upload' && 'Upload 📥'}
-                {tab === 'draw' && 'Draws 🎡'}
-                {tab === 'settings' && 'Settings ⚙️'}
-              </span>
-            </button>
-          ))}
+         {['roster', 'athletes', 'current', 'lists', 'draw', 'settings'].map(tab => (
+  <button
+    key={tab}
+    onClick={() => setActiveTab(tab)}
+    className={`tab-btn px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[11px] sm:text-sm font-semibold transition cursor-pointer shrink-0 whitespace-nowrap ${activeTab === tab ? 'bg-amber-500 text-gray-900' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+  >
+    <span className="sm:hidden">
+      {tab === 'roster' && '📊'}
+      {tab === 'athletes' && '👥'}
+      {tab === 'current' && '📅 Month'}
+      {tab === 'lists' && '📜 History'}
+      {tab === 'draw' && '🎡'}
+      {tab === 'settings' && '⚙️'}
+    </span>
+    <span className="hidden sm:inline">
+      {tab === 'roster' && 'Dashboard 📊'}
+      {tab === 'athletes' && 'Athletes 👥'}
+      {tab === 'current' && 'Current Month 📅'}
+      {tab === 'lists' && 'History 📜'}
+      {tab === 'draw' && 'Draws 🎡'}
+      {tab === 'settings' && 'Settings ⚙️'}
+    </span>
+  </button>
+))}
         </nav>
       </header>
 
@@ -702,21 +702,6 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'upload' && (
-          <Upload
-            uploadYear={uploadYear}
-            setUploadYear={setUploadYear}
-            uploadMonth={uploadMonth}
-            setUploadMonth={setUploadMonth}
-            uploadText={uploadText}
-            setUploadText={setUploadText}
-            selectedFile={selectedFile}
-            setSelectedFile={setSelectedFile}
-            uploadStatus={uploadStatus}
-            processUpload={processUpload}
-          />
-        )}
-
         {activeTab === 'draw' && (
           <Draws
             drawMYear={drawMYear}
@@ -741,9 +726,22 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'settings' && (
-          <Settings appSettings={appSettings} saveSettings={saveSettings} />
-        )}
+       {activeTab === 'settings' && (
+  <Settings
+    appSettings={appSettings}
+    saveSettings={saveSettings}
+    uploadYear={uploadYear}
+    setUploadYear={setUploadYear}
+    uploadMonth={uploadMonth}
+    setUploadMonth={setUploadMonth}
+    uploadText={uploadText}
+    setUploadText={setUploadText}
+    selectedFile={selectedFile}
+    setSelectedFile={setSelectedFile}
+    uploadStatus={uploadStatus}
+    processUpload={processUpload}
+  />
+)}
       </main>
 
       {wheelModal && (

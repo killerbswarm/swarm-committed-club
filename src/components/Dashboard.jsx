@@ -100,7 +100,6 @@ export default function Dashboard({
   const almost = athletes
     .filter((a) => !a.qualified && a.canMakeIt && a.need <= 5)
     .sort((a, b) => a.need - b.need || b.days - a.days);
-  const leaders = athletes.filter((a) => a.qualified).sort((a, b) => b.days - a.days);
 
   recent.sort((a, b) =>
     String(b.date).localeCompare(String(a.date)) ||
@@ -113,7 +112,7 @@ export default function Dashboard({
 
   return (
     <section className="space-y-5">
-      <div className="rounded-2xl border border-amber-500/20 bg-gradient-to-br from-gray-800 to-gray-900 p-5 sm:p-6">
+      <div className="hero-banner rounded-2xl border border-amber-500/30 bg-gradient-to-br from-gray-800 to-gray-900 p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
           <div>
             <p className="text-[11px] uppercase tracking-widest font-bold text-amber-500/80">Committed Club</p>
@@ -135,16 +134,16 @@ export default function Dashboard({
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Kpi value={checkedIn} label="Checked in this month" color="text-white" />
-        <Kpi value={qualified} label="Already at 15+" color="text-emerald-400" />
-        <Kpi value={onPace} label="Can still qualify" color="text-amber-400" />
-        <Kpi value={behind.length} label="Can't hit 15" color="text-rose-400" />
+        <Kpi value={checkedIn} label="Checked in this month" color="text-amber-400" />
+        <Kpi value={qualified} label="Already at 15+" color="text-emerald-500" />
+        <Kpi value={onPace} label="Can still qualify" color="text-amber-500" />
+        <Kpi value={behind.length} label="Can't hit 15" color="text-rose-500" />
       </div>
 
       <div className="grid grid-cols-3 gap-3">
-        <MiniKpi value={activeMembersCount} label="Active roster" />
-        <MiniKpi value={activeStreaksCount} label="Active streaks" />
-        <MiniKpi value={unbrokenCount2026} label="2026 unbroken" />
+        <Kpi value={activeMembersCount} label="Active roster" color="text-amber-400" />
+        <Kpi value={activeStreaksCount} label="Active streaks" color="text-amber-400" />
+        <Kpi value={unbrokenCount2026} label="2026 unbroken" color="text-amber-400" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -152,11 +151,11 @@ export default function Dashboard({
           {almost.length === 0 ? (
             <Empty text="Nobody is in the last 5 days right now." />
           ) : (
-            <ul className="space-y-2">
+            <ul className="space-y-1">
               {almost.slice(0, 8).map((a) => (
-                <li key={a.email} className="flex items-center justify-between gap-2 bg-gray-900/50 rounded-lg px-3 py-2">
+                <li key={a.email} className="flex items-center justify-between gap-2 rounded-lg px-2 py-2">
                   <span className="text-sm font-semibold text-gray-100 truncate">{a.name}</span>
-                  <span className="text-xs font-bold text-amber-400 whitespace-nowrap">{a.days}/{minDays} · {a.need} to go</span>
+                  <span className="text-sm font-bold text-amber-400 whitespace-nowrap">{a.days}/{minDays} · {a.need} to go</span>
                 </li>
               ))}
             </ul>
@@ -165,48 +164,18 @@ export default function Dashboard({
 
         <Panel title="Latest check-ins" subtitle={`${todayCount} today · newest first`}>
           {recent.length === 0 ? (
-            <Empty text="No class check-ins this month yet." />
+            <Empty text="No check-ins this month yet." />
           ) : (
-            <ul className="space-y-2 max-h-72 overflow-y-auto pr-1">
-              {recent.slice(0, 20).map((c, i) => (
-                <li key={`${c.name}-${c.date}-${c.time}-${i}`} className="flex items-center justify-between gap-2 bg-gray-900/50 rounded-lg px-3 py-2">
+            <ul className="space-y-1 max-h-72 overflow-y-auto">
+              {recent.slice(0, 20).map((c, idx) => (
+                <li key={`${c.name}-${c.date}-${c.time}-${idx}`} className="flex items-center justify-between gap-2 rounded-lg px-2 py-2">
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-gray-100 truncate">{c.name}</div>
-                    <div className="text-[11px] text-gray-500">{c.date === todayKey ? 'Today' : c.date}</div>
+                    <div className="text-[11px] text-gray-400">{c.date === todayKey ? 'Today' : c.date}</div>
                   </div>
-                  <span className="text-[11px] text-gray-400 whitespace-nowrap">{c.className}{c.time ? ` · ${c.time}` : ''}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Panel title="Qualified this month" subtitle={`${leaders.length} athletes`}>
-          {leaders.length === 0 ? (
-            <Empty text="No one has 15 days yet." />
-          ) : (
-            <ul className="space-y-2 max-h-64 overflow-y-auto">
-              {leaders.slice(0, 10).map((a) => (
-                <li key={a.email} className="flex items-center justify-between gap-2 px-1 py-1">
-                  <span className="text-sm text-gray-200 truncate">{a.name}</span>
-                  <span className="text-sm font-black text-emerald-400">{a.days}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
-
-        <Panel title="Can't reach 15" subtitle={behind.length ? 'Even if they come every remaining day' : 'Everyone can still make it'}>
-          {behind.length === 0 ? (
-            <Empty text="All checked-in athletes can still qualify." />
-          ) : (
-            <ul className="space-y-2 max-h-64 overflow-y-auto">
-              {behind.slice(0, 10).map((a) => (
-                <li key={a.email} className="flex items-center justify-between gap-2 px-1 py-1">
-                  <span className="text-sm text-gray-200 truncate">{a.name}</span>
-                  <span className="text-sm font-bold text-rose-400">{a.days} days</span>
+                  <div className="text-xs text-gray-400 whitespace-nowrap">
+                    {c.className}{c.time ? ` · ${c.time}` : ''}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -222,15 +191,6 @@ function Kpi({ value, label, color }) {
     <div className="bg-gray-800 border border-gray-700 rounded-xl p-4">
       <div className={`text-3xl sm:text-4xl font-black ${color}`}>{value}</div>
       <div className="text-[10px] sm:text-xs uppercase font-bold text-gray-400 mt-1 leading-tight">{label}</div>
-    </div>
-  );
-}
-
-function MiniKpi({ value, label }) {
-  return (
-    <div className="bg-gray-800/70 border border-gray-700/80 rounded-xl px-3 py-3 text-center">
-      <div className="text-lg sm:text-2xl font-black text-gray-100">{value}</div>
-      <div className="text-[9px] sm:text-[10px] uppercase font-bold text-gray-500 mt-0.5">{label}</div>
     </div>
   );
 }
