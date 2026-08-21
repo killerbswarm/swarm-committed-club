@@ -8,10 +8,10 @@ import ClubLists from './components/ClubLists';
 import Upload from './components/Upload';
 import Draws from './components/Draws';
 import Settings from './components/Settings';
-import { 
+import {
   auth, db, signInAnonymously, onAuthStateChanged,
-  collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, 
-  writeBatch, serverTimestamp, arrayUnion, arrayRemove, onSnapshot 
+  collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
+  writeBatch, serverTimestamp, arrayUnion, arrayRemove, onSnapshot
 } from './firebase';
 import AppVersion from './components/AppVersion';
 
@@ -34,74 +34,52 @@ function formatMonthYearDisplay(docId) {
   return docId;
 }
 
-function VersionLabel() {
-  const [v, setV] = useState("…");
-  useEffect(() => {
-    fetch("/version.json?t=" + Date.now())
-      .then((r) => r.json())
-      .then((d) => setV(d.version || "missing"))
-      .catch(() => setV("error"));
-  }, []);
-  return <div className="text-xs text-gray-400 font-mono">v{v}</div>;
-}
-
 export default function App() {
-  // Auth & System State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passInput, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState('');
   const [isAuthLoading, setIsAuthLoading] = useState(false);
 
-  // Tab State
-  const [activeTab, setActiveTab] = useState('roster'); // roster, current, lists, upload, draw, settings
-  const [listSubTab, setListSubTab] = useState('monthly'); // monthly, quarterly, unbroken
+  const [activeTab, setActiveTab] = useState('roster');
+  const [listSubTab, setListSubTab] = useState('monthly');
 
-  // Core Data Cache
   const [masterMembers, setMasterMembers] = useState([]);
   const [monthlyRecords, setMonthlyRecords] = useState([]);
   const [quarterlyRecords, setQuarterlyRecords] = useState([]);
   const [appSettings, setAppSettings] = useState({ minCheckins: 15, theme: 'dark', inactiveThreshold: 12 });
 
-  // Filters & Search
   const [rosterStatusFilter, setRosterStatusFilter] = useState('active');
   const [rosterSearch, setRosterSearch] = useState('');
-  
 
-  // New system - Current Month (dated checkins)
   const [checkins, setCheckins] = useState([]);
 
   const [clubListSelectedId, setClubListSelectedId] = useState('');
   const [clubListSearch, setClubListSearch] = useState('');
 
-  // Modals & Draw State
   const [historyMember, setHistoryMember] = useState(null);
   const [editMember, setEditMember] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [addNameInput, setAddNameInput] = useState('');
   const [addIsCoachInput, setAddIsCoachInput] = useState(false);
 
-  // Upload Tab State
   const [uploadYear, setUploadYear] = useState(2026);
   const [uploadMonth, setUploadMonth] = useState(8);
   const [uploadText, setUploadText] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploadStatus, setUploadStatus] = useState({ msg: '', type: '' });
 
-  // Draws Tab State
   const [drawMYear, setDrawMYear] = useState(2026);
   const [drawMMonth, setDrawMMonth] = useState(8);
   const [drawQYear, setDrawQYear] = useState(2026);
   const [drawQQuarter, setDrawQQuarter] = useState(3);
-  const [wheelModal, setWheelModal] = useState(null); // { title, pool, onWin }
-  const [revealedWinner, setRevealedWinner] = useState(null); // { title, name, prize }
+  const [wheelModal, setWheelModal] = useState(null);
+  const [revealedWinner, setRevealedWinner] = useState(null);
   const [ghlStatus, setGhlStatus] = useState('');
   const [manualWinnerSelect, setManualWinnerSelect] = useState('');
 
-  // Canvas Wheel Ref
   const canvasRef = useRef(null);
   const [isSpinning, setIsSpinning] = useState(false);
 
-  // Theme Sync
   useEffect(() => {
     if (appSettings.theme === 'light') {
       document.body.classList.add('light-mode');
@@ -110,7 +88,6 @@ export default function App() {
     }
   }, [appSettings.theme]);
 
-  // Firebase Auth Check
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user && sessionStorage.getItem('cc_auth') === 'true') {
@@ -162,7 +139,6 @@ export default function App() {
 
   async function loadAllData() {
     try {
-      // Members + quarterly still one-time (or occasional refresh)
       const [membersSnap, quarterlySnap] = await Promise.all([
         getDocs(collection(db, 'members')),
         getDocs(collection(db, 'quarterly_records'))
@@ -181,7 +157,6 @@ export default function App() {
     }
   }
 
-  // Still used after manual calendar add/edit/delete
   async function loadCheckinsFromMaster() {
     try {
       const res = await fetch(`${CHECKINS_API}/getCheckins`);
@@ -193,7 +168,6 @@ export default function App() {
     }
   }
 
-  // Live listener on swarm-checkins + poll fallback (rules often block cross-project snapshots)
   useEffect(() => {
     if (!isAuthenticated) return;
 
@@ -226,7 +200,6 @@ export default function App() {
     };
   }, [isAuthenticated]);
 
-  // Helper Streak Engine (Excludes Current In-Progress Month)
   function getMemberStreak(memberId) {
     const sorted = [...monthlyRecords].sort((a, b) => a.id.localeCompare(b.id));
     if (sorted.length === 0) return 0;
@@ -310,6 +283,40 @@ export default function App() {
     }
   }
 
+  async function toggleDisqualify(monthDocId, memberId, shouldDisqualify) {
+    if (!monthDocId || !memberId) return;
+    const rec = monthlyRecords.find((r) => r.id === monthDocId);
+    const current = rec?.unqualifiedIds || [];
+    const next = shouldDisqualify
+      ? Array.from(new Set([...current, memberId]))
+      : current.filter((id) => id !== memberId);
+
+    setMonthlyRecords((prev) => {
+      const exists = prev.some((r) => r.id === monthDocId);
+      if (!exists) {
+        return [{
+          id: monthDocId,
+          year: parseInt(monthDocId.slice(0, 4), 10),
+          month: parseInt(monthDocId.slice(5, 7), 10),
+          unqualifiedIds: next,
+          qualifierIds: rec?.qualifierIds || []
+        }, ...prev];
+      }
+      return prev.map((r) => r.id === monthDocId ? { ...r, unqualifiedIds: next } : r);
+    });
+
+    try {
+      await setDoc(doc(db, 'monthly_records', monthDocId), {
+        year: parseInt(monthDocId.slice(0, 4), 10),
+        month: parseInt(monthDocId.slice(5, 7), 10),
+        unqualifiedIds: next,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    } catch (err) {
+      alert('Failed to update disqualify: ' + err.message);
+    }
+  }
+
   function postDataViaHtmlForm(url, data) {
     const form = document.createElement('form');
     form.method = 'POST';
@@ -329,26 +336,25 @@ export default function App() {
     document.body.removeChild(form);
   }
 
- async function sendWinnerGhl(winnerName, prizeText) {
-  const webhook = import.meta.env.VITE_ZAPIER_WEBHOOK;
-  if (!webhook) {
-    alert("VITE_ZAPIER_WEBHOOK is not set in .env");
-    return;
+  async function sendWinnerGhl(winnerName, prizeText) {
+    const webhook = import.meta.env.VITE_ZAPIER_WEBHOOK;
+    if (!webhook) {
+      alert("VITE_ZAPIER_WEBHOOK is not set in .env");
+      return;
+    }
+    try {
+      setGhlStatus("Sending webhook...");
+      postDataViaHtmlForm(webhook, {
+        name: winnerName,
+        prize: prizeText || '',
+        source: 'Committed Club Tracker'
+      });
+      setGhlStatus("Success! Prize SMS triggered in GoHighLevel 🎉");
+    } catch (err) {
+      setGhlStatus(`Error: ${err.message}`);
+    }
   }
-  try {
-    setGhlStatus("Sending webhook...");
-    postDataViaHtmlForm(webhook, {
-      name: winnerName,
-      prize: prizeText || '',
-      source: 'Committed Club Tracker'
-    });
-    setGhlStatus("Success! Prize SMS triggered in GoHighLevel 🎉");
-  } catch (err) {
-    setGhlStatus(`Error: ${err.message}`);
-  }
-}
 
-  // Upload Logic
   async function processUpload() {
     if (!selectedFile && !uploadText) {
       alert("Please select a CSV file or paste text entries.");
@@ -388,7 +394,7 @@ export default function App() {
           let name = line.replace(/\d{4}-\d{2}-\d{2}/g, '').replace(/\b(ex-member|coach|admin|non-member|member)\b/gi, '').trim();
           const match = line.match(/(\d{1,3})\s*$/);
           const count = match ? parseInt(match[1], 10) : appSettings.minCheckins;
-          if (name && name.length > 1) list.push({ name, checkins: count });
+          if (name && name.length > 1) parsed.push({ name, checkins: count });
         });
       }
 
@@ -456,7 +462,6 @@ export default function App() {
     }
   }
 
-  // Wheel Drawing Animation Engine
   function drawWheel(members, angle) {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -501,7 +506,6 @@ export default function App() {
       ctx.restore();
     }
 
-    // Wheel Pin & Center Cap
     ctx.beginPath();
     ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
     ctx.lineWidth = 8;
@@ -561,10 +565,9 @@ export default function App() {
     requestAnimationFrame(step);
   }
 
-  // Render Stats Calculation
   const activeMembersCount = masterMembers.filter(m => m.status === 'active' || !m.status).length;
   const activeStreaksCount = masterMembers.filter(m => getMemberStreak(m.id) > 0).length;
-  
+
   const now = new Date();
   const currentMonthDocId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const yrRecords2026 = monthlyRecords.filter(r => r.year === 2026);
@@ -593,12 +596,12 @@ export default function App() {
           <div className="bg-amber-500 text-gray-900 font-black px-3 py-1 rounded-lg text-2xl tracking-wider inline-block">CC</div>
           <h2 className="text-xl font-bold text-white leading-tight">Committed Club Tracker</h2>
           <form onSubmit={handleAuthSubmit} className="space-y-3">
-            <input 
-              type="password" 
-              value={passInput} 
-              onChange={(e) => setAuthPassword(e.target.value)} 
-              placeholder="Enter Password" 
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-white text-center focus:outline-none focus:border-amber-500 font-mono tracking-widest" 
+            <input
+              type="password"
+              value={passInput}
+              onChange={(e) => setAuthPassword(e.target.value)}
+              placeholder="Enter Password"
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-white text-center focus:outline-none focus:border-amber-500 font-mono tracking-widest"
             />
             <button type="submit" disabled={isAuthLoading} className="w-full bg-amber-500 hover:bg-amber-400 text-gray-900 font-bold py-2.5 rounded-lg transition text-sm cursor-pointer uppercase tracking-wider">
               {isAuthLoading ? 'Unlocking...' : 'Unlock Dashboard 🔓'}
@@ -612,22 +615,19 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
-      {/* Navigation Header */}  
       <header className="bg-gray-800 border-b border-gray-700 px-3 sm:px-6 py-3 sm:py-4 flex flex-col sm:flex-row justify-between items-center gap-3 shadow-lg">
         <div className="flex items-center space-x-2.5 w-full sm:w-auto justify-start">
           <div className="bg-amber-500 text-gray-900 font-black px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-lg text-lg sm:text-xl tracking-wider shrink-0">CC</div>
           <div>
             <h1 className="text-base sm:text-xl font-bold tracking-wide text-white leading-tight">Committed Club Tracker</h1>
-            <div className="text-xs text-gray-400 font-mono">
-              <AppVersion />
-            </div>
+            <AppVersion />
           </div>
         </div>
         <nav className="flex gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 scrollbar-thin -mx-1 px-1">
           {['roster', 'athletes', 'current', 'lists', 'upload', 'draw', 'settings'].map(tab => (
-            <button 
+            <button
               key={tab}
-              onClick={() => setActiveTab(tab)} 
+              onClick={() => setActiveTab(tab)}
               className={`tab-btn px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[11px] sm:text-sm font-semibold transition cursor-pointer shrink-0 whitespace-nowrap ${activeTab === tab ? 'bg-amber-500 text-gray-900' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
             >
               <span className="sm:hidden">
@@ -654,8 +654,6 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-2 sm:px-6 py-3 sm:py-8">
-        
-        {/* 1. DASHBOARD TAB */}
         {activeTab === 'roster' && (
           <Dashboard
             checkins={checkins}
@@ -682,13 +680,11 @@ export default function App() {
           />
         )}
 
-        {/* CURRENT MONTH */}
         {activeTab === 'current' && (
           <CurrentMonth checkins={checkins} appSettings={appSettings} masterMembers={masterMembers} setHistoryMember={setHistoryMember} checkinsApi={CHECKINS_API} onCheckinsChanged={loadCheckinsFromMaster} />
         )}
 
-        {/* 3. CLUB LISTS TAB */}
-       {activeTab === 'lists' && (
+        {activeTab === 'lists' && (
           <ClubLists
             listSubTab={listSubTab}
             setListSubTab={setListSubTab}
@@ -702,10 +698,10 @@ export default function App() {
             appSettings={appSettings}
             setHistoryMember={setHistoryMember}
             checkins={checkins}
+            toggleDisqualify={toggleDisqualify}
           />
         )}
 
-        {/* 4. UPLOAD TAB */}
         {activeTab === 'upload' && (
           <Upload
             uploadYear={uploadYear}
@@ -721,7 +717,6 @@ export default function App() {
           />
         )}
 
-        {/* 5. DRAWS TAB */}
         {activeTab === 'draw' && (
           <Draws
             drawMYear={drawMYear}
@@ -733,7 +728,11 @@ export default function App() {
             drawQQuarter={drawQQuarter}
             setDrawQQuarter={setDrawQQuarter}
             monthlyRecords={monthlyRecords}
+            quarterlyRecords={quarterlyRecords}
             masterMembers={masterMembers}
+            checkins={checkins}
+            appSettings={appSettings}
+            getPastWinnersMapForMonth={getPastWinnersMapForMonth}
             setWheelModal={setWheelModal}
             revealedWinner={revealedWinner}
             setRevealedWinner={setRevealedWinner}
@@ -742,14 +741,11 @@ export default function App() {
           />
         )}
 
-        {/* 6. SETTINGS TAB */}
         {activeTab === 'settings' && (
           <Settings appSettings={appSettings} saveSettings={saveSettings} />
         )}
-
       </main>
 
-      {/* RAFFLE WHEEL MODAL */}
       {wheelModal && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-gray-800 border border-gray-700 rounded-3xl p-6 text-center max-w-2xl w-full relative flex flex-col items-center">
@@ -763,9 +759,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ATHLETE HISTORY MODAL */}
       {historyMember && (() => {
-        // Pull last check-in + CHIP total from dated checkins
         const memberEmail = (historyMember.email || '').toLowerCase();
         const memberName = (historyMember.name || '').toLowerCase().trim();
         const memberCheckins = (checkins || []).filter(c => {
@@ -789,8 +783,6 @@ export default function App() {
             <div className="bg-gray-800 border border-gray-700 rounded-2xl p-5 sm:p-6 max-w-lg w-full relative max-h-[90vh] overflow-y-auto">
               <button onClick={() => setHistoryMember(null)} className="absolute top-4 right-4 bg-gray-700 text-gray-400 hover:text-white w-8 h-8 rounded-full font-bold">&times;</button>
               <h3 className="text-xl sm:text-2xl font-bold text-amber-400 mb-1 pr-10">{historyMember.name}</h3>
-              {memberEmail && <p className="text-xs text-gray-500 mb-4">{memberEmail}</p>}
-
               <div className="grid grid-cols-3 gap-2 sm:gap-3 text-center mb-4">
                 <div className="bg-gray-900 p-3 rounded-xl border border-gray-700">
                   <div className="text-xl sm:text-2xl font-black text-amber-400">{historyMember.id ? monthlyRecords.filter(r => (r.qualifierIds || []).includes(historyMember.id)).length : '—'}</div>
@@ -805,8 +797,6 @@ export default function App() {
                   <div className="text-[9px] sm:text-[10px] uppercase text-gray-400 font-bold">Wins</div>
                 </div>
               </div>
-
-              {/* Last check-in + CHIP total */}
               <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 space-y-3">
                 <div className="text-[10px] uppercase font-bold text-gray-500 tracking-wide">Latest from Chalk It Pro</div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
@@ -837,7 +827,6 @@ export default function App() {
         );
       })()}
 
-      {/* ADD MEMBER MODAL */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-gray-800 border border-gray-700 rounded-2xl p-6 max-w-md w-full relative space-y-4">
@@ -848,7 +837,7 @@ export default function App() {
               <input type="checkbox" id="addCoach" checked={addIsCoachInput} onChange={(e) => setAddIsCoachInput(e.target.checked)} className="rounded" />
               <label htmlFor="addCoach" className="text-xs text-gray-300">Designate as Coach</label>
             </div>
-            <button 
+            <button
               onClick={async () => {
                 if (!addNameInput.trim()) return alert("Enter a name.");
                 const nameKey = makeNameKey(addNameInput);
@@ -856,7 +845,7 @@ export default function App() {
                 setShowAddModal(false);
                 setAddNameInput('');
                 loadAllData();
-              }} 
+              }}
               className="w-full bg-amber-500 hover:bg-amber-400 text-gray-900 font-bold py-2.5 rounded-lg text-sm uppercase"
             >
               Create Athlete
@@ -865,7 +854,6 @@ export default function App() {
         </div>
       )}
 
-      {/* EDIT MEMBER MODAL */}
       {editMember && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-gray-800 border border-gray-700 rounded-2xl p-6 max-w-md w-full relative space-y-4">
@@ -873,32 +861,32 @@ export default function App() {
             <h3 className="text-lg font-bold text-amber-400 uppercase">Edit Profile</h3>
             <input type="text" value={editMember.name} onChange={(e) => setEditMember({ ...editMember, name: e.target.value })} className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-sm text-white" />
             <div className="grid grid-cols-2 gap-2">
-              <button 
-                onClick={() => setEditMember({ ...editMember, status: editMember.status === 'inactive' ? 'active' : 'inactive' })} 
+              <button
+                onClick={() => setEditMember({ ...editMember, status: editMember.status === 'inactive' ? 'active' : 'inactive' })}
                 className={`py-2 rounded-lg text-xs font-bold border ${editMember.status === 'inactive' ? 'bg-red-950/60 text-red-200 border-red-700' : 'bg-green-950/60 text-green-200 border-green-700'}`}
               >
                 {editMember.status === 'inactive' ? 'Inactive' : 'Active'}
               </button>
-              <button 
-                onClick={() => setEditMember({ ...editMember, isCoach: !editMember.isCoach })} 
+              <button
+                onClick={() => setEditMember({ ...editMember, isCoach: !editMember.isCoach })}
                 className={`py-2 rounded-lg text-xs font-bold border ${editMember.isCoach ? 'bg-purple-950/60 text-purple-200 border-purple-700' : 'bg-gray-700 text-gray-200 border-gray-600'}`}
               >
                 {editMember.isCoach ? 'Coach' : '+ Coach'}
               </button>
             </div>
             <div className="flex gap-2">
-              <button 
+              <button
                 onClick={async () => {
                   if (!confirm(`Delete ${editMember.name}?`)) return;
                   await deleteDoc(doc(db, 'members', editMember.id));
                   setEditMember(null);
                   loadAllData();
-                }} 
+                }}
                 className="bg-red-600 hover:bg-red-500 text-white font-bold py-2.5 px-4 rounded-lg text-sm uppercase"
               >
                 Delete
               </button>
-              <button 
+              <button
                 onClick={async () => {
                   await updateDoc(doc(db, 'members', editMember.id), {
                     name: editMember.name.trim(),
@@ -909,7 +897,7 @@ export default function App() {
                   });
                   setEditMember(null);
                   loadAllData();
-                }} 
+                }}
                 className="flex-1 bg-amber-500 hover:bg-amber-400 text-gray-900 font-bold py-2.5 rounded-lg text-sm uppercase"
               >
                 Save

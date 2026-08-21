@@ -14,9 +14,31 @@ function formatClassTime(raw) {
   return `${m[1]}:${String(m[2]).padStart(2, "0")}${m[3] || ""}`;
 }
 
+function sortClasses(list) {
+  return [...(list || [])].sort((a, b) =>
+    String(a.time || "").localeCompare(String(b.time || "")) ||
+    String(a.name || "").localeCompare(String(b.name || ""))
+  );
+}
+
+function withCountFlags(list) {
+  const sorted = sortClasses(list);
+  let countedUsed = false;
+  return sorted.map((c) => {
+    if (c.isCoachMeeting) {
+      return { ...c, counts: false, reason: "doesn’t count" };
+    }
+    if (!countedUsed) {
+      countedUsed = true;
+      return { ...c, counts: true, reason: "" };
+    }
+    return { ...c, counts: false, reason: "2nd class — not counted" };
+  });
+}
+
 export default function CurrentMonth({ checkins, appSettings, masterMembers = [], setHistoryMember, checkinsApi, onCheckinsChanged }) {
   const [search, setSearch] = useState('');
-  const [selected, setSelected] = useState(null); // athlete row
+  const [selected, setSelected] = useState(null);
   const [dayAction, setDayAction] = useState(null);
   const [formClassName, setFormClassName] = useState('CrossFit');
   const [formClassTime, setFormClassTime] = useState('');
@@ -52,11 +74,9 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
       totalAttendanceCount: c.totalAttendanceCount,
       isCoachMeeting: isCoachMeeting(c.className)
     });
-    // Days only count if they did a real class (not coach-meeting-only)
     if (!isCoachMeeting(c.className)) {
       byEmail[email].dates.add(c.classDate);
     }
-    // keep latest CHIP total
     if (c.totalAttendanceCount != null) {
       byEmail[email].totalAttendanceCount = c.totalAttendanceCount;
     }
@@ -92,16 +112,33 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
     setDayAction(null);
   }
 
-  function openDay(dateStr, isChecked, classInfo) {
+  function openDay(dateStr, classes) {
     setDayAction({
       dateStr,
-      isChecked,
-      className: classInfo?.name || 'CrossFit',
-      classTime: classInfo?.time || '',
-      docId: classInfo?.docId || null
+      classes: withCountFlags(classes),
+      editingId: null,
+      adding: false
     });
-    setFormClassName(classInfo?.name || 'CrossFit');
-    setFormClassTime(classInfo?.time || '');
+    setFormClassName('CrossFit');
+    setFormClassTime('');
+  }
+
+  function startEdit(cls) {
+    setDayAction(prev => prev ? { ...prev, editingId: cls.docId, adding: false } : prev);
+    setFormClassName(cls.name || 'CrossFit');
+    setFormClassTime(cls.time || '');
+  }
+
+  function startAdd() {
+    setDayAction(prev => prev ? { ...prev, editingId: null, adding: true } : prev);
+    setFormClassName('CrossFit');
+    setFormClassTime('');
+  }
+
+  function cancelForm() {
+    setDayAction(prev => prev ? { ...prev, editingId: null, adding: false } : prev);
+    setFormClassName('CrossFit');
+    setFormClassTime('');
   }
 
   async function handleAddOrEdit() {
@@ -109,6 +146,7 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
     setSaving(true);
     try {
       const email = selected.email.toLowerCase();
+      const editingId = dayAction.adding ? undefined : (dayAction.editingId || undefined);
       const res = await fetch(`${checkinsApi}/upsertCheckin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -119,24 +157,28 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
           classDate: dayAction.dateStr,
           className: formClassName || 'CrossFit',
           classTime: formClassTime || '',
+          id: editingId,
           source: 'manual'
         })
       });
       if (!res.ok) throw new Error(await res.text());
-      setDayAction(null);
+      const savedId = editingId || `${email}_${dayAction.dateStr}_${formClassTime || Date.now()}`;
       if (onCheckinsChanged) await onCheckinsChanged();
-      // optimistic local update
+      const counts = !isCoachMeeting(formClassName);
       setSelected(prev => {
         if (!prev) return prev;
         const newDates = new Set(prev.dates);
-        newDates.add(dayAction.dateStr);
-        const classes = (prev.classes || []).filter(c => c.date !== dayAction.dateStr);
+        if (counts) newDates.add(dayAction.dateStr);
+        const classes = (prev.classes || []).filter(c => c.docId !== savedId);
         classes.push({
           date: dayAction.dateStr,
           name: formClassName || 'CrossFit',
           time: formClassTime || '',
-          docId: `${email}_${dayAction.dateStr}`
+          docId: savedId,
+          isCoachMeeting: !counts
         });
+        const stillHasCounted = classes.some(c => c.date === dayAction.dateStr && !c.isCoachMeeting);
+        if (!stillHasCounted) newDates.delete(dayAction.dateStr);
         const sortedDates = Array.from(newDates).sort();
         return {
           ...prev,
@@ -149,6 +191,15 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
           lastClassTime: formClassTime || ''
         };
       });
+      const nextClasses = (selected.classes || []).filter(c => c.docId !== savedId);
+      nextClasses.push({
+        date: dayAction.dateStr,
+        name: formClassName || 'CrossFit',
+        time: formClassTime || '',
+        docId: savedId,
+        isCoachMeeting: isCoachMeeting(formClassName)
+      });
+      openDay(dayAction.dateStr, nextClasses.filter(c => c.date === dayAction.dateStr));
     } catch (err) {
       alert('Failed to save: ' + err.message);
     } finally {
@@ -156,29 +207,31 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
     }
   }
 
-  async function handleDelete() {
+  async function handleDelete(docId) {
     if (!selected || !dayAction || !checkinsApi) return;
-    if (!confirm(`Delete check-in for ${dayAction.dateStr}?`)) return;
+    const targetId = docId || `${selected.email.toLowerCase()}_${dayAction.dateStr}`;
+    if (!confirm(`Delete this check-in for ${dayAction.dateStr}?`)) return;
     setSaving(true);
     try {
       const email = selected.email.toLowerCase();
-      const docId = dayAction.docId || `${email}_${dayAction.dateStr}`;
       const res = await fetch(`${checkinsApi}/deleteCheckin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: docId, email, classDate: dayAction.dateStr })
+        body: JSON.stringify({ id: targetId, email, classDate: dayAction.dateStr })
       });
       if (!res.ok) throw new Error(await res.text());
-      setDayAction(null);
       if (onCheckinsChanged) await onCheckinsChanged();
+      const remaining = (selected.classes || []).filter(c => c.docId !== targetId);
       setSelected(prev => {
         if (!prev) return prev;
+        const classes = (prev.classes || []).filter(c => c.docId !== targetId);
+        const remainingThatDay = classes.filter(c => c.date === dayAction.dateStr);
         const newDates = new Set(prev.dates);
-        newDates.delete(dayAction.dateStr);
-        const classes = (prev.classes || []).filter(c => c.date !== dayAction.dateStr);
+        if (!remainingThatDay.some(c => !c.isCoachMeeting)) newDates.delete(dayAction.dateStr);
         const sortedDates = Array.from(newDates).sort();
         const lastDate = sortedDates[sortedDates.length - 1] || null;
-        const lastClass = classes.filter(c => c.date === lastDate).pop();
+        const lastClass = classes.filter(c => c.date === lastDate && !c.isCoachMeeting).pop()
+          || classes.filter(c => c.date === lastDate).pop();
         return {
           ...prev,
           dates: newDates,
@@ -190,6 +243,12 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
           lastClassTime: lastClass?.time || ''
         };
       });
+      const remainingThatDay = remaining.filter(c => c.date === dayAction.dateStr);
+      if (remainingThatDay.length) {
+        openDay(dayAction.dateStr, remainingThatDay);
+      } else {
+        setDayAction(null);
+      }
     } catch (err) {
       alert('Failed to delete: ' + err.message);
     } finally {
@@ -206,6 +265,8 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
     return <span className="bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap">{left} left</span>;
   }
 
+  const showForm = !!(dayAction && (dayAction.adding || dayAction.editingId));
+
   return (
     <section className="space-y-4 sm:space-y-6">
       <div className="bg-gray-800 p-3 sm:p-6 rounded-xl border border-gray-700 shadow-md">
@@ -220,54 +281,41 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search athlete or email..."
+            placeholder="Search athlete..."
             className="bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs sm:text-sm text-white focus:outline-none focus:border-amber-500 w-full sm:w-56"
           />
         </div>
 
-        {/* Mobile cards — whole row clickable */}
-        <div className="sm:hidden space-y-2">
+        <div className="sm:hidden space-y-1">
           {rows.length === 0 ? (
             <div className="p-6 text-center text-gray-500 text-sm">No dated check-ins recorded for this month yet.</div>
           ) : (
-            rows.map((m, idx) => {
-              const pct = Math.min(100, Math.round((m.days / minCheckins) * 100));
-              return (
-                <button
-                  key={m.email}
-                  type="button"
-                  onClick={() => openAthlete(m)}
-                  className="w-full text-left bg-gray-900/60 border border-gray-700 rounded-xl p-3 flex items-center gap-3 hover:border-amber-500/50 transition"
-                >
-                  <div className="text-gray-500 font-mono text-xs w-5 shrink-0">{idx + 1}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-amber-400 text-sm truncate">{m.name}</div>
-                    <div className="text-[10px] text-gray-500 truncate">{m.email}</div>
-                    <div className="mt-1.5 flex items-center gap-2">
-                      <span className="font-black text-amber-400 text-sm">{m.days}</span>
-                      <div className="flex-1 max-w-[80px] bg-gray-700 h-1.5 rounded-full overflow-hidden">
-                        <div className="bg-amber-500 h-full rounded-full" style={{ width: `${pct}%` }}></div>
-                      </div>
-                      <StatusBadge days={m.days} />
-                    </div>
-                  </div>
-                  <div className="text-gray-500 text-lg shrink-0">›</div>
-                </button>
-              );
-            })
+            rows.map((m, idx) => (
+              <button
+                key={m.email}
+                type="button"
+                onClick={() => openAthlete(m)}
+                className="w-full text-left bg-gray-900/60 border border-gray-700 rounded-lg px-3 py-2 flex items-center gap-2 hover:border-amber-500/50 transition"
+              >
+                <div className="text-gray-500 font-mono text-xs w-5 shrink-0">{idx + 1}</div>
+                <div className="flex-1 min-w-0 font-semibold text-amber-400 text-sm truncate">{m.name}</div>
+                <span className="font-black text-amber-400 text-sm shrink-0">{m.days}</span>
+                <StatusBadge days={m.days} />
+                <div className="text-gray-500 text-lg shrink-0">›</div>
+              </button>
+            ))
           )}
         </div>
 
-        {/* Desktop table — whole row clickable */}
         <div className="hidden sm:block overflow-x-auto">
           <table className="w-full text-left text-sm text-gray-300">
             <thead className="bg-gray-900 text-gray-400 uppercase text-xs font-bold border-b border-gray-700">
               <tr>
-                <th className="p-3 w-10 text-center">#</th>
-                <th className="p-3">Athlete</th>
-                <th className="p-3 text-center">Days</th>
-                <th className="p-3 text-center">Status</th>
-                <th className="p-3">Last Check-In</th>
+                <th className="p-2 w-10 text-center">#</th>
+                <th className="p-2">Athlete</th>
+                <th className="p-2 text-center">Days</th>
+                <th className="p-2 text-center">Status</th>
+                <th className="p-2">Last Check-In</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-700/60">
@@ -276,43 +324,33 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
                   <td colSpan="5" className="p-6 text-center text-gray-500">No dated check-ins recorded for this month yet.</td>
                 </tr>
               ) : (
-                rows.map((m, idx) => {
-                  const pct = Math.min(100, Math.round((m.days / minCheckins) * 100));
-                  return (
-                    <tr
-                      key={m.email}
-                      onClick={() => openAthlete(m)}
-                      className="hover:bg-gray-800/80 cursor-pointer transition"
-                    >
-                      <td className="p-3 text-center font-mono text-gray-400 font-bold">{idx + 1}</td>
-                      <td className="p-3">
-                        <div className="font-semibold text-amber-400">{m.name}</div>
-                        <div className="text-[10px] text-gray-500">{m.email}</div>
-                      </td>
-                      <td className="p-3 text-center">
-                        <div className="font-black text-amber-400 text-base">{m.days}</div>
-                        <div className="w-24 bg-gray-700 h-1.5 rounded-full mx-auto mt-1 overflow-hidden">
-                          <div className="bg-amber-500 h-full rounded-full" style={{ width: `${pct}%` }}></div>
-                        </div>
-                      </td>
-                      <td className="p-3 text-center">
-                        <StatusBadge days={m.days} />
-                      </td>
-                      <td className="p-3 text-xs text-gray-400">
-                        {m.lastDate ? (
-                          <span>{m.lastDate}{m.lastClassName ? ` · ${m.lastClassName}` : ''}{m.lastClassTime ? ` @ ${m.lastClassTime}` : ''}</span>
-                        ) : '—'}
-                      </td>
-                    </tr>
-                  );
-                })
+                rows.map((m, idx) => (
+                  <tr
+                    key={m.email}
+                    onClick={() => openAthlete(m)}
+                    className="hover:bg-gray-800/80 cursor-pointer transition"
+                  >
+                    <td className="p-2 text-center font-mono text-gray-400 font-bold">{idx + 1}</td>
+                    <td className="p-2">
+                      <div className="font-semibold text-amber-400 truncate">{m.name}</div>
+                    </td>
+                    <td className="p-2 text-center font-black text-amber-400">{m.days}</td>
+                    <td className="p-2 text-center">
+                      <StatusBadge days={m.days} />
+                    </td>
+                    <td className="p-2 text-xs text-gray-400 whitespace-nowrap">
+                      {m.lastDate ? (
+                        <span>{m.lastDate}{m.lastClassName ? ` · ${m.lastClassName}` : ''}{m.lastClassTime ? ` @ ${m.lastClassTime}` : ''}</span>
+                      ) : '—'}
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Combined detail + calendar modal */}
       {selected && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/70"
@@ -322,11 +360,9 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
             className="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden max-h-[92vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
             <div className="flex items-start justify-between p-4 border-b border-gray-700">
               <div className="min-w-0 pr-2">
                 <h3 className="text-lg font-bold text-amber-400 truncate">{selected.name}</h3>
-                <p className="text-xs text-gray-400 truncate">{selected.email}</p>
               </div>
               <button
                 onClick={() => { setSelected(null); setDayAction(null); }}
@@ -336,7 +372,6 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
               </button>
             </div>
 
-            {/* CHIP / stats summary */}
             <div className="p-4 border-b border-gray-700 bg-gray-900/40">
               <div className="text-[10px] uppercase font-bold text-gray-500 tracking-wide mb-2">Latest from Chalk It Pro</div>
               <div className="grid grid-cols-2 gap-3 text-sm">
@@ -365,14 +400,15 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
               </div>
             </div>
 
-            {/* Calendar */}
             <div className="p-4">
               {(() => {
                 const firstDay = new Date(year, month, 1);
                 const lastDay = new Date(year, month + 1, 0);
                 const startWeekday = firstDay.getDay();
                 const daysInMonth = lastDay.getDate();
-                const checkedSet = selected.dates instanceof Set ? selected.dates : new Set(selected.sortedDates || []);
+                const countedSet = selected.dates instanceof Set
+                  ? selected.dates
+                  : new Set(selected.sortedDates || []);
                 const classMap = {};
                 (selected.classes || []).forEach(c => {
                   if (!classMap[c.date]) classMap[c.date] = [];
@@ -385,20 +421,32 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
                 }
                 for (let day = 1; day <= daysInMonth; day++) {
                   const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                  const isChecked = checkedSet.has(dateStr);
-                  const classes = classMap[dateStr] || [];
+                  const classes = withCountFlags(classMap[dateStr] || []);
+                  const hasCheckin = classes.length > 0;
+                  const isCounted = countedSet.has(dateStr);
+                  const extra = classes.length > 1 ? classes.length : 0;
+                  const label = hasCheckin
+                    ? classes.map(c => `${c.name}${c.time ? ' @ ' + formatClassTime(c.time) : ''}${c.reason ? ` (${c.reason})` : ''}`).join(', ')
+                    : 'Add check-in';
                   cells.push(
                     <button
                       key={day}
                       type="button"
-                      title={isChecked ? (classes.map(c => `${c.name}${c.time ? ' @ ' + c.time : ''}`).join(', ') || 'Checked in') : 'Add check-in'}
-                      onClick={() => openDay(dateStr, isChecked, classes[0])}
-                      className={`h-9 flex items-center justify-center rounded-lg text-sm font-semibold transition cursor-pointer
-                        ${isChecked
+                      title={label}
+                      onClick={() => openDay(dateStr, classMap[dateStr] || [])}
+                      className={`relative h-9 flex items-center justify-center rounded-lg text-sm font-semibold transition cursor-pointer
+                        ${isCounted
                           ? 'bg-amber-500 text-gray-900 shadow hover:bg-amber-400'
-                          : 'bg-gray-900/60 text-gray-500 hover:bg-gray-700 hover:text-white'}`}
+                          : hasCheckin
+                            ? 'bg-slate-600 text-white border border-slate-400 hover:bg-slate-500'
+                            : 'bg-gray-900/60 text-gray-500 hover:bg-gray-700 hover:text-white'}`}
                     >
                       {day}
+                      {extra > 0 && (
+                        <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-gray-900 text-amber-300 text-[9px] leading-[14px]">
+                          {classes.length}
+                        </span>
+                      )}
                     </button>
                   );
                 }
@@ -413,8 +461,9 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
                       ))}
                     </div>
                     <div className="grid grid-cols-7 gap-1">{cells}</div>
-                    <div className="mt-3 flex items-center gap-3 text-[10px] text-gray-400">
-                      <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-500 inline-block" /> Checked in</span>
+                    <div className="mt-3 flex flex-wrap items-center gap-3 text-[10px] text-gray-400">
+                      <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-500 inline-block" /> Counts</span>
+                      <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-slate-600 border border-slate-400 inline-block" /> Happened, doesn’t count</span>
                       <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-900 border border-gray-600 inline-block" /> Tap empty to add</span>
                     </div>
                   </>
@@ -422,61 +471,115 @@ export default function CurrentMonth({ checkins, appSettings, masterMembers = []
               })()}
             </div>
 
-            {/* Day action panel */}
             {dayAction && (
               <div className="border-t border-gray-700 p-4 bg-gray-900/50 space-y-3">
                 <div className="text-sm font-bold text-white">
                   {dayAction.dateStr}
                   <span className="ml-2 text-xs font-normal text-gray-400">
-                    {dayAction.isChecked ? 'Edit / Delete' : 'Add check-in'}
+                    {dayAction.classes?.length ? `${dayAction.classes.length} class${dayAction.classes.length === 1 ? '' : 'es'}` : 'No classes yet'}
                   </span>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">Class Name</label>
-                    <input
-                      type="text"
-                      value={formClassName}
-                      onChange={(e) => setFormClassName(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-sm text-white"
-                      placeholder="CrossFit"
-                    />
+
+                {dayAction.classes?.length > 0 && (
+                  <div className="space-y-1.5">
+                    {dayAction.classes.map((cls) => (
+                      <div
+                        key={cls.docId || `${cls.name}-${cls.time}`}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-gray-700 bg-gray-800 px-2.5 py-2"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm text-white font-semibold truncate">
+                            {cls.name || 'Class'}
+                          </div>
+                          <div className="text-[11px] text-gray-400">
+                            {cls.time ? formatClassTime(cls.time) : 'No time'}
+                            {cls.reason && (
+                              <span className="ml-2 text-slate-300">{cls.reason}</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => startEdit(cls)}
+                            disabled={saving}
+                            className="text-[10px] uppercase font-bold bg-gray-700 hover:bg-gray-600 text-white px-2.5 py-1.5 rounded-lg disabled:opacity-50"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(cls.docId)}
+                            disabled={saving}
+                            className="text-[10px] uppercase font-bold bg-red-700 hover:bg-red-600 text-white px-2.5 py-1.5 rounded-lg disabled:opacity-50"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div>
-                    <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">Class Time</label>
-                    <input
-                      type="text"
-                      value={formClassTime}
-                      onChange={(e) => setFormClassTime(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-sm text-white"
-                      placeholder="5:00"
-                    />
+                )}
+
+                {showForm && (
+                  <div className="space-y-3 pt-1">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">Class Name</label>
+                        <input
+                          type="text"
+                          value={formClassName}
+                          onChange={(e) => setFormClassName(e.target.value)}
+                          className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-sm text-white"
+                          placeholder="CrossFit"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">Class Time</label>
+                        <input
+                          type="text"
+                          value={formClassTime}
+                          onChange={(e) => setFormClassTime(e.target.value)}
+                          className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-sm text-white"
+                          placeholder="5:00"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleAddOrEdit}
+                        disabled={saving}
+                        className="flex-1 bg-amber-500 hover:bg-amber-400 text-gray-900 font-bold py-2 rounded-lg text-xs uppercase disabled:opacity-50"
+                      >
+                        {saving ? 'Saving…' : (dayAction.adding ? 'Add' : 'Save')}
+                      </button>
+                      <button
+                        onClick={cancelForm}
+                        className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg text-xs"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleAddOrEdit}
-                    disabled={saving}
-                    className="flex-1 bg-amber-500 hover:bg-amber-400 text-gray-900 font-bold py-2 rounded-lg text-xs uppercase disabled:opacity-50"
-                  >
-                    {saving ? 'Saving…' : (dayAction.isChecked ? 'Save' : 'Add')}
-                  </button>
-                  {dayAction.isChecked && (
+                )}
+
+                {!showForm && (
+                  <div className="flex gap-2">
                     <button
-                      onClick={handleDelete}
-                      disabled={saving}
-                      className="bg-red-700 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg text-xs uppercase disabled:opacity-50"
+                      type="button"
+                      onClick={startAdd}
+                      className="flex-1 bg-amber-500 hover:bg-amber-400 text-gray-900 font-bold py-2 rounded-lg text-xs uppercase"
                     >
-                      Delete
+                      Add class
                     </button>
-                  )}
-                  <button
-                    onClick={() => setDayAction(null)}
-                    className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg text-xs"
-                  >
-                    Cancel
-                  </button>
-                </div>
+                    <button
+                      onClick={() => setDayAction(null)}
+                      className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg text-xs"
+                    >
+                      Close
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

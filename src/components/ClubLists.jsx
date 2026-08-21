@@ -7,14 +7,38 @@ function formatMonthYearDisplay(docId) {
   if (docId.includes('Q')) return docId;
   if (docId.includes('-')) {
     const [yr, mo] = docId.split('-');
-    const mNum = parseInt(mo, 10);
-    return `${monthNames[mNum] || 'Month'} ${yr}`;
+    return `${monthNames[parseInt(mo, 10)] || 'Month'} ${yr}`;
   }
   return docId;
 }
 
 function isCoachMeeting(className) {
-  return (className || "").toLowerCase().includes("coach meeting");
+  return (className || '').toLowerCase().includes('coach meeting');
+}
+
+function pastWinnersForMonth(monthlyRecords, quarterlyRecords, targetDocId) {
+  const map = new Map();
+  if (!targetDocId || !targetDocId.includes('-')) return map;
+  const [yrStr, moStr] = targetDocId.split('-');
+  const targetDate = new Date(parseInt(yrStr, 10), parseInt(moStr, 10) - 1, 1);
+  for (let i = 1; i <= 12; i++) {
+    const prev = new Date(targetDate);
+    prev.setMonth(prev.getMonth() - i);
+    const pDocId = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
+    const prevDoc = (monthlyRecords || []).find((r) => r.id === pDocId);
+    if (prevDoc && prevDoc.winnerId && !map.has(prevDoc.winnerId)) {
+      map.set(prevDoc.winnerId, formatMonthYearDisplay(pDocId));
+    }
+  }
+  (quarterlyRecords || []).forEach((qRec) => {
+    if (!qRec.winnerId || map.has(qRec.winnerId)) return;
+    const qEndDate = new Date(qRec.year, qRec.quarter * 3, 0);
+    const diffDays = (targetDate - qEndDate) / (1000 * 60 * 60 * 24);
+    if (diffDays > 0 && diffDays <= 365) {
+      map.set(qRec.winnerId, `Q${qRec.quarter} ${qRec.year}`);
+    }
+  });
+  return map;
 }
 
 export default function ClubLists({
@@ -30,6 +54,7 @@ export default function ClubLists({
   appSettings,
   setHistoryMember,
   checkins = [],
+  toggleDisqualify
 }) {
   const now = new Date();
   const currentMonthDocId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -78,22 +103,13 @@ export default function ClubLists({
       if (set.size < minCheckins) return;
       const m = byEmail[email];
       if (m) list.push({ ...m, days: set.size, email });
-      else {
-        list.push({
-          id: email,
-          name: email,
-          email,
-          days: set.size,
-        });
-      }
+      else list.push({ id: email, name: email, email, days: set.size });
     });
     return list;
   }
 
   function qualifierIdsForMonth(docId) {
-    if (hasLiveCheckins(docId)) {
-      return new Set(liveMonthMembers(docId).map((m) => m.id));
-    }
+    if (hasLiveCheckins(docId)) return new Set(liveMonthMembers(docId).map((m) => m.id));
     return new Set(monthRec(docId)?.qualifierIds || []);
   }
 
@@ -104,13 +120,7 @@ export default function ClubLists({
   const monthOptions = Array.from(
     new Set([
       ...(monthlyRecords || []).map((r) => r.id),
-      ...Array.from(
-        new Set(
-          (checkins || [])
-            .map((c) => (c.classDate || '').slice(0, 7))
-            .filter((id) => /^\d{4}-\d{2}$/.test(id))
-        )
-      ),
+      ...Array.from(new Set((checkins || []).map((c) => (c.classDate || '').slice(0, 7)).filter((id) => /^\d{4}-\d{2}$/.test(id)))),
     ])
   ).sort((a, b) => b.localeCompare(a));
 
@@ -122,18 +132,13 @@ export default function ClubLists({
   function membersForQuarter(year, qNum) {
     const ids = quarterMonthIds(year, qNum);
     const sets = ids.map(qualifierIdsForMonth);
-    if (sets.some((s) => s.size === 0) && ids.some((id) => !hasLiveCheckins(id) && !monthRec(id))) {
-      return [];
-    }
+    if (sets.some((s) => s.size === 0) && ids.some((id) => !hasLiveCheckins(id) && !monthRec(id))) return [];
     return masterMembers.filter((m) => sets.every((s) => s.has(m.id)));
   }
 
   function membersUnbroken(year) {
-    const recs = monthOptions.filter((id) => {
-      if (!id.startsWith(`${year}-`)) return false;
-      return id < currentMonthDocId || id === currentMonthDocId;
-    });
-    if (recs.length === 0) return [];
+    const recs = monthOptions.filter((id) => id.startsWith(`${year}-`) && (id < currentMonthDocId || id === currentMonthDocId));
+    if (!recs.length) return [];
     const completed = recs.filter((id) => id < currentMonthDocId);
     const use = completed.length ? completed : recs;
     return masterMembers.filter((m) => use.every((id) => qualifierIdsForMonth(id).has(m.id)));
@@ -145,17 +150,16 @@ export default function ClubLists({
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 pb-4 border-b border-gray-700">
           <div>
             <h2 className="text-base sm:text-xl font-bold text-amber-400">Committed Club Historical Lists</h2>
-            <p className="text-gray-400 text-[11px] sm:text-xs">Uses the same check-in days as Current Month (coach meetings excluded).</p>
+            <p className="text-gray-400 text-[11px] sm:text-xs">
+              Monthly lists use live check-ins when available. Uncheck someone to disqualify them from the wheel. Last-12-month winners are auto-DQ’d.
+            </p>
           </div>
           <div className="flex bg-gray-900 p-1 rounded-xl border border-gray-700 gap-1 w-full sm:w-auto">
             {['monthly', 'quarterly', 'unbroken'].map((sub) => (
               <button
                 key={sub}
                 type="button"
-                onClick={() => {
-                  setListSubTab(sub);
-                  setClubListSelectedId('');
-                }}
+                onClick={() => { setListSubTab(sub); setClubListSelectedId(''); }}
                 className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold ${
                   listSubTab === sub ? 'bg-amber-500 text-gray-900' : 'text-gray-300'
                 }`}
@@ -180,15 +184,11 @@ export default function ClubLists({
             >
               <option value="">-- Select --</option>
               {listSubTab === 'monthly' && monthOptions.map((id) => (
-                <option key={id} value={`M:${id}`}>
-                  {formatMonthYearDisplay(id)} ({monthQualifiedCount(id)} qualified)
-                </option>
+                <option key={id} value={`M:${id}`}>{formatMonthYearDisplay(id)} ({monthQualifiedCount(id)} qualified)</option>
               ))}
               {listSubTab === 'quarterly' && years.flatMap((yr) =>
                 [4, 3, 2, 1].map((qNum) => (
-                  <option key={`${yr}-Q${qNum}`} value={`Q:${yr}-Q${qNum}`}>
-                    {`Q${qNum} ${yr}`}
-                  </option>
+                  <option key={`${yr}-Q${qNum}`} value={`Q:${yr}-Q${qNum}`}>{`Q${qNum} ${yr}`}</option>
                 ))
               )}
               {listSubTab === 'unbroken' && years.map((yr) => (
@@ -212,6 +212,7 @@ export default function ClubLists({
           <table className="w-full text-left text-xs sm:text-sm text-gray-300">
             <thead className="bg-gray-900 text-gray-400 uppercase text-[10px] sm:text-xs font-bold border-b border-gray-700">
               <tr>
+                <th className="p-2 sm:p-3 w-10 text-center">In</th>
                 <th className="p-2 sm:p-3 w-10 text-center">#</th>
                 <th className="p-2 sm:p-3">Athlete Name</th>
                 <th className="p-2 sm:p-3 text-center">Days</th>
@@ -222,19 +223,23 @@ export default function ClubLists({
               {(() => {
                 let list = [];
                 let showDays = false;
-
+                let monthDocId = '';
                 if (!clubListSelectedId) {
-                  return <tr><td colSpan="4" className="p-6 text-center text-gray-500">Select a list above to view members.</td></tr>;
+                  return <tr><td colSpan="5" className="p-6 text-center text-gray-500">Select a list above to view members.</td></tr>;
                 }
 
                 let winnerId = '';
                 let winnerName = '';
+                let dqSet = new Set();
+                let autoDq = new Map();
 
                 if (clubListSelectedId.startsWith('M:')) {
-                  const docId = clubListSelectedId.replace('M:', '');
-                  const rec = monthRec(docId);
-                  if (hasLiveCheckins(docId)) {
-                    list = liveMonthMembers(docId);
+                  monthDocId = clubListSelectedId.replace('M:', '');
+                  const rec = monthRec(monthDocId);
+                  dqSet = new Set(rec?.unqualifiedIds || []);
+                  autoDq = pastWinnersForMonth(monthlyRecords, quarterlyRecords, monthDocId);
+                  if (hasLiveCheckins(monthDocId)) {
+                    list = liveMonthMembers(monthDocId);
                     showDays = true;
                   } else if (rec) {
                     const qSet = new Set(rec.qualifierIds || []);
@@ -277,14 +282,30 @@ export default function ClubLists({
                   return (a.name || '').localeCompare(b.name || '');
                 });
 
-                if (list.length === 0) {
-                  return <tr><td colSpan="4" className="p-6 text-center text-gray-500">No members found for this selection.</td></tr>;
+                if (!list.length) {
+                  return <tr><td colSpan="5" className="p-6 text-center text-gray-500">No members found for this selection.</td></tr>;
                 }
 
                 return list.map((m, idx) => {
                   const isWinner = winnerId && m.id === winnerId;
+                  const wonWhen = autoDq.get(m.id);
+                  const manualDq = dqSet.has(m.id);
+                  const inDraw = !m.isCoach && !wonWhen && !manualDq;
                   return (
                     <tr key={m.id || m.email || idx} className={isWinner ? 'bg-amber-500/10' : 'hover:bg-gray-800/50'}>
+                      <td className="p-2 sm:p-3 text-center">
+                        {monthDocId && !m.isCoach && !wonWhen ? (
+                          <input
+                            type="checkbox"
+                            checked={inDraw}
+                            onChange={(e) => toggleDisqualify && toggleDisqualify(monthDocId, m.id, !e.target.checked)}
+                            className="accent-amber-500 cursor-pointer"
+                            title={inDraw ? 'In the wheel' : 'Disqualified'}
+                          />
+                        ) : (
+                          <input type="checkbox" checked={false} disabled className="opacity-40" />
+                        )}
+                      </td>
                       <td className="p-2 sm:p-3 text-center font-mono text-gray-400 font-bold">{idx + 1}</td>
                       <td className="p-2 sm:p-3">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -295,7 +316,15 @@ export default function ClubLists({
                       </td>
                       <td className="p-2 sm:p-3 text-center font-black text-white">{showDays ? m.days : '—'}</td>
                       <td className="p-2 sm:p-3 text-center">
-                        <span className="bg-green-900/60 text-green-300 border border-green-700/50 px-2.5 py-1 rounded-full text-[10px] font-bold">✓ Qualified</span>
+                        {m.isCoach ? (
+                          <span className="bg-purple-900/60 text-purple-300 border border-purple-700/50 px-2.5 py-1 rounded-full text-[10px] font-bold">Coach</span>
+                        ) : wonWhen ? (
+                          <span className="bg-red-900/60 text-red-300 border border-red-700/50 px-2.5 py-1 rounded-full text-[10px] font-bold">Auto DQ · {wonWhen}</span>
+                        ) : manualDq ? (
+                          <span className="bg-red-900/60 text-red-300 border border-red-700/50 px-2.5 py-1 rounded-full text-[10px] font-bold">Disqualified</span>
+                        ) : (
+                          <span className="bg-green-900/60 text-green-300 border border-green-700/50 px-2.5 py-1 rounded-full text-[10px] font-bold">✓ In draw</span>
+                        )}
                       </td>
                     </tr>
                   );
