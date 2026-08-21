@@ -23,6 +23,25 @@ function makeNameKey(name) {
   return (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+function formatClassTime(raw) {
+  if (raw == null || raw === '') return '';
+  const s = String(raw).trim();
+  const ampm = s.match(/\s*(am|pm)$/i);
+  const core = s.replace(/\s*(am|pm)$/i, '').trim();
+  const parts = core.split(':');
+  let h = parseInt(parts[0], 10);
+  let min = parseInt(parts[1] || '0', 10);
+  if (isNaN(h)) return s;
+  if (isNaN(min)) min = 0;
+  if (ampm) {
+    const ap = ampm[1].toLowerCase();
+    if (ap === 'pm' && h < 12) h += 12;
+    if (ap === 'am' && h === 12) h = 0;
+  }
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  return `${h % 12 || 12}:${String(min).padStart(2, '0')} ${suffix}`;
+}
+
 function formatMonthYearDisplay(docId) {
   if (!docId) return '';
   if (docId.includes('Q')) return docId;
@@ -833,7 +852,7 @@ export default function App() {
                   </div>
                   <div>
                     <div className="text-[10px] uppercase text-gray-500 font-bold">Last Class Time</div>
-                    <div className="text-white font-semibold">{last?.classTime || '—'}</div>
+                    <div className="text-white font-semibold">{formatClassTime(last?.classTime) || '—'}</div>
                   </div>
                   <div>
                     <div className="text-[10px] uppercase text-gray-500 font-bold">Total Check-Ins (CHIP)</div>

@@ -9,9 +9,20 @@ function isCoachMeeting(className) {
 function formatClassTime(raw) {
   if (raw == null || raw === "") return "";
   const s = String(raw).trim();
-  const m = s.match(/^(\d{1,2}):(\d{1,2})(\s*[ap]m)?$/i);
-  if (!m) return s;
-  return `${m[1]}:${String(m[2]).padStart(2, "0")}${m[3] || ""}`;
+  const ampm = s.match(/\s*(am|pm)$/i);
+  const core = s.replace(/\s*(am|pm)$/i, "").trim();
+  const parts = core.split(":");
+  let h = parseInt(parts[0], 10);
+  let min = parseInt(parts[1] || "0", 10);
+  if (isNaN(h)) return s;
+  if (isNaN(min)) min = 0;
+  if (ampm) {
+    const ap = ampm[1].toLowerCase();
+    if (ap === "pm" && h < 12) h += 12;
+    if (ap === "am" && h === 12) h = 0;
+  }
+  const suffix = h >= 12 ? "PM" : "AM";
+  return `${h % 12 || 12}:${String(min).padStart(2, "0")} ${suffix}`;
 }
 
 function sortClasses(list) {
